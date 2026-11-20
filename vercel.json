@@ -1,5 +1,15 @@
 {
+  "buildCommand": "npm install --legacy-peer-deps && npm run build",
+  "outputDirectory": "dist/client",
+  "installCommand": "npm install --legacy-peer-deps",
+  "framework": null,
+  "functions": {
+    "api/server.js": {
+      "runtime": "nodejs22.x"
+    }
+  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/" }
+    { "source": "/api/(.*)", "destination": "/api/server" },
+    { "source": "/(.*)", "destination": "/api/server" }
   ]
 }
