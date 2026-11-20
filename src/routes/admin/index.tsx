@@ -1,9 +1,9 @@
 ﻿import { useState, useRef, useCallback, useEffect } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronRight,
+  AlertCircle, ArrowLeft, Bell, Check, CheckCircle2, ChevronRight,
   Copy, Edit2, ExternalLink, Eye, EyeOff, Gift, ImagePlus,
-  LayoutDashboard, Loader2, Package, Plus, Settings,
+  LayoutDashboard, Loader2, Lock, LogOut, Package, Plus, Settings,
   ShoppingBag, Trash2, Users, Wallet, X, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,13 +17,103 @@ import {
   uploadImage, fetchWalletQrUrls, uploadWalletQr,
   type DbSiteConfig, type DbDrop, type DbWalletConfig, type DbOrder,
 } from "@/lib/supabase";
+import {
+  getExtendedContent,
+  saveExtendedContent,
+  type ExtendedSiteContent,
+  type DemoNotification,
+} from "@/lib/siteContent";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({ meta: [{ title: "Admin - Drop Club" }] }),
-  component: AdminPanel,
+  component: AdminPageWithAuth,
 });
 
-type AdminSection = "dashboard" | "site" | "drops" | "wallet" | "orders";
+const ADMIN_PASSWORD = (import.meta.env.VITE_ADMIN_PASSWORD || "tsldrivenetworknet**##***").trim();
+
+function AdminPageWithAuth() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return sessionStorage.getItem("admin_authenticated") === "true";
+  });
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState(false);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.trim() === ADMIN_PASSWORD) {
+      sessionStorage.setItem("admin_authenticated", "true");
+      setIsAuthenticated(true);
+      setError(false);
+    } else {
+      setError(true);
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/60 p-4">
+        <div className="w-full max-w-sm rounded-xl border border-border bg-card p-7 shadow-2xl">
+          <div className="flex flex-col items-center text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Lock size={26} />
+            </div>
+            <h1 className="font-serif text-2xl font-bold text-foreground">Admin Access</h1>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Enter administrator password to access the management portal.
+            </p>
+          </div>
+
+          <form onSubmit={handleLogin} className="mt-6 space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-foreground">Admin Password</label>
+              <div className="relative flex items-center">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  autoFocus
+                  placeholder="Enter password..."
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError(false);
+                  }}
+                  className={`pr-10 ${error ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 text-muted-foreground hover:text-foreground cursor-pointer"
+                  onClick={() => setShowPassword((v) => !v)}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {error && (
+                <p className="text-[11px] font-semibold text-destructive mt-1">
+                  Incorrect password. Please verify and try again.
+                </p>
+              )}
+            </div>
+
+            <Button type="submit" className="w-full rounded-full font-bold h-10">
+              Unlock Admin Panel
+            </Button>
+          </form>
+
+          <div className="mt-5 border-t border-border pt-4 text-center">
+            <Link to="/" className="text-xs text-muted-foreground hover:text-foreground hover:underline">
+              ← Back to Storefront
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <AdminPanel />;
+}
+
+type AdminSection = "dashboard" | "site" | "drops" | "wallet" | "orders" | "alerts";
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((res, rej) => {
@@ -173,7 +263,13 @@ function AdminPanel() {
     { id: "drops", label: "Drops & Products", icon: <Package size={15} /> },
     { id: "wallet", label: "Crypto Wallets", icon: <Wallet size={15} /> },
     { id: "orders", label: "Orders & Claims", icon: <Users size={15} /> },
+    { id: "alerts", label: "Live Claim Alerts", icon: <Bell size={15} /> },
   ];
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("admin_authenticated");
+    window.location.reload();
+  };
 
   return (
     <div className="admin-shell">
@@ -192,10 +288,17 @@ function AdminPanel() {
             </button>
           ))}
         </nav>
-        <div className="admin-sidebar-footer">
+        <div className="admin-sidebar-footer flex flex-col gap-1">
           <Link to="/" className="admin-nav-item text-muted-foreground">
             <ExternalLink size={14} /> View storefront
           </Link>
+          <button
+            type="button"
+            className="admin-nav-item text-destructive hover:bg-destructive/10 cursor-pointer"
+            onClick={handleLogout}
+          >
+            <LogOut size={14} /> Lock & Sign out
+          </button>
         </div>
       </aside>
       <main className="admin-main">
@@ -209,6 +312,7 @@ function AdminPanel() {
           {section === "drops" && <DropsSection setSaving={setSaving} onSaved={markSaved} />}
           {section === "wallet" && <WalletSection setSaving={setSaving} onSaved={markSaved} />}
           {section === "orders" && <OrdersSection />}
+          {section === "alerts" && <AlertsSection setSaving={setSaving} onSaved={markSaved} />}
         </div>
       </main>
     </div>
@@ -285,6 +389,7 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
   const [form, setForm] = useState<DbSiteConfig | null>(null);
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
   const [loading, setLoading] = useState(true);
+  const [ext, setExt] = useState<ExtendedSiteContent>(() => getExtendedContent());
 
   useEffect(() => {
     fetchSiteConfig().then((cfg) => {
@@ -330,6 +435,13 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
         }
       }
       await saveSiteConfig(updates);
+      saveExtendedContent({
+        topCountdownBadge: ext.topCountdownBadge,
+        topCountdownText: ext.topCountdownText,
+        sectionEyebrow: ext.sectionEyebrow,
+        sectionTitle: ext.sectionTitle,
+        sectionCaption: ext.sectionCaption,
+      });
       setPendingFiles({});
       onSaved();
     } catch (err: any) {
@@ -362,12 +474,37 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
           aspectClass="aspect-square max-h-24 max-w-24"
         />
       </div>
+
       <div className="admin-form-section">
-        <h2 className="admin-section-title">Announcement banner</h2>
-        <div className="admin-field"><label className="admin-label">Banner text</label><Input value={form.announcement_text} onChange={(e) => set("announcement_text")(e.target.value)} /></div>
+        <h2 className="admin-section-title">Top Announcement Bar</h2>
+        <div className="admin-field">
+          <label className="admin-label">Banner text (e.g. FRESH FINDS. REAL WINNERS...)</label>
+          <Input value={form.announcement_text} onChange={(e) => set("announcement_text")(e.target.value)} />
+        </div>
       </div>
+
       <div className="admin-form-section">
-        <h2 className="admin-section-title">Hero section</h2>
+        <h2 className="admin-section-title">Top Countdown Bar</h2>
+        <div className="admin-field">
+          <label className="admin-label">Countdown badge text</label>
+          <Input
+            value={ext.topCountdownBadge}
+            onChange={(e) => setExt((prev) => ({ ...prev, topCountdownBadge: e.target.value }))}
+            placeholder="FLASH DROP CLOSING"
+          />
+        </div>
+        <div className="admin-field">
+          <label className="admin-label">Countdown subtitle / claim text</label>
+          <Input
+            value={ext.topCountdownText}
+            onChange={(e) => setExt((prev) => ({ ...prev, topCountdownText: e.target.value }))}
+            placeholder="Scarlet High Tops · Claim window closing soon!"
+          />
+        </div>
+      </div>
+
+      <div className="admin-form-section">
+        <h2 className="admin-section-title">Hero Section</h2>
         <div className="admin-field">
           <label className="admin-label">Headline (press Enter for a new line; last line is italic)</label>
           <Textarea rows={3} value={form.hero_headline} onChange={(e) => set("hero_headline")(e.target.value)} />
@@ -387,6 +524,35 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
           <div className="admin-field"><label className="admin-label">Delivery fee</label><Input value={form.hero_delivery_fee} onChange={(e) => set("hero_delivery_fee")(e.target.value)} placeholder="$8.50" /></div>
         </div>
       </div>
+
+      <div className="admin-form-section">
+        <h2 className="admin-section-title">Main Drops Section Headings</h2>
+        <div className="admin-field">
+          <label className="admin-label">Eyebrow</label>
+          <Input
+            value={ext.sectionEyebrow}
+            onChange={(e) => setExt((prev) => ({ ...prev, sectionEyebrow: e.target.value }))}
+            placeholder="HANDPICKED FOR YOU"
+          />
+        </div>
+        <div className="admin-field">
+          <label className="admin-label">Section Title</label>
+          <Input
+            value={ext.sectionTitle}
+            onChange={(e) => setExt((prev) => ({ ...prev, sectionTitle: e.target.value }))}
+            placeholder="The good stuff"
+          />
+        </div>
+        <div className="admin-field">
+          <label className="admin-label">Section Caption</label>
+          <Input
+            value={ext.sectionCaption}
+            onChange={(e) => setExt((prev) => ({ ...prev, sectionCaption: e.target.value }))}
+            placeholder="Good things do not wait. Neither do these."
+          />
+        </div>
+      </div>
+
       <div className="admin-form-section">
         <h2 className="admin-section-title">Footer</h2>
         <div className="admin-field"><label className="admin-label">Footer text</label><Input value={form.footer_text} onChange={(e) => set("footer_text")(e.target.value)} /></div>
@@ -804,6 +970,214 @@ function OrdersSection() {
         </div>
       )}
       <div className="text-[10px] text-muted-foreground"><CheckCircle2 size={11} className="inline mr-1 text-green-600" />Showing {filtered.length} of {orders.length} submissions.</div>
+    </div>
+  );
+}
+
+// ── Demo Live Claim Alerts ─────────────────────────────────────
+function AlertsSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; onSaved: () => void }) {
+  const [ext, setExt] = useState<ExtendedSiteContent>(() => getExtendedContent());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formAlert, setFormAlert] = useState<DemoNotification>({
+    id: "",
+    name: "",
+    location: "",
+    dropName: "",
+    timeAgo: "",
+  });
+
+  const handleToggleEnabled = () => {
+    const updated = saveExtendedContent({ demoNotificationsEnabled: !ext.demoNotificationsEnabled });
+    setExt(updated);
+  };
+
+  const handleStartAdd = () => {
+    setEditingId("new");
+    setFormAlert({
+      id: Date.now().toString(),
+      name: "",
+      location: "",
+      dropName: "Scarlet High Tops",
+      timeAgo: "Just now",
+    });
+  };
+
+  const handleStartEdit = (alertItem: DemoNotification) => {
+    setEditingId(alertItem.id);
+    setFormAlert({ ...alertItem });
+  };
+
+  const handleSaveItem = () => {
+    if (!formAlert.name.trim() || !formAlert.dropName.trim()) {
+      alert("Name and drop name are required.");
+      return;
+    }
+    let updatedList = [...ext.demoNotifications];
+    if (editingId === "new") {
+      updatedList = [formAlert, ...updatedList];
+    } else {
+      updatedList = updatedList.map((item) => (item.id === editingId ? formAlert : item));
+    }
+    const updated = saveExtendedContent({ demoNotifications: updatedList });
+    setExt(updated);
+    setEditingId(null);
+    onSaved();
+  };
+
+  const handleDeleteItem = (id: string) => {
+    const updatedList = ext.demoNotifications.filter((item) => item.id !== id);
+    const updated = saveExtendedContent({ demoNotifications: updatedList });
+    setExt(updated);
+    onSaved();
+  };
+
+  const handleResetDefaults = () => {
+    if (confirm("Reset all claim alerts to demo defaults?")) {
+      const updated = saveExtendedContent({
+        demoNotificationsEnabled: true,
+        demoNotifications: [
+          { id: "1", name: "Sarah M.", location: "London, UK", dropName: "Scarlet High Tops", timeAgo: "Just now" },
+          { id: "2", name: "David K.", location: "New York, USA", dropName: "Tesla Cyberbackpack", timeAgo: "1m ago" },
+          { id: "3", name: "Elena R.", location: "Berlin, DE", dropName: "Scarlet High Tops", timeAgo: "2m ago" },
+          { id: "4", name: "Liam P.", location: "Toronto, CA", dropName: "Wireless Earbuds Pro", timeAgo: "3m ago" },
+          { id: "5", name: "Marcus T.", location: "Sydney, AU", dropName: "Scarlet High Tops", timeAgo: "4m ago" },
+        ],
+      });
+      setExt(updated);
+      onSaved();
+    }
+  };
+
+  return (
+    <div className="admin-form">
+      <div className="admin-form-section">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="admin-section-title mb-1">Live Claim Notifications (2-Min Cycle)</h2>
+            <p className="text-xs text-muted-foreground">
+              Displays social-proof toast alerts on storefront every 2 minutes showing recent winners/claims, triggering mobile vibration.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant={ext.demoNotificationsEnabled ? "default" : "outline"}
+            className="rounded-full text-xs font-bold"
+            onClick={handleToggleEnabled}
+          >
+            {ext.demoNotificationsEnabled ? "Enabled" : "Disabled"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Button size="sm" className="rounded-full text-xs font-bold" onClick={handleStartAdd}>
+            <Plus size={14} className="mr-1" /> Add claim notification
+          </Button>
+          <Button size="sm" variant="outline" className="rounded-full text-xs" onClick={handleResetDefaults}>
+            Reset defaults
+          </Button>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          {ext.demoNotifications.length} alerts in rotation
+        </span>
+      </div>
+
+      {editingId && (
+        <div className="rounded-lg border border-primary/30 bg-card p-4 shadow-sm space-y-3">
+          <h3 className="text-xs font-bold text-foreground">
+            {editingId === "new" ? "Add New Notification" : "Edit Notification"}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold">User Name</label>
+              <Input
+                value={formAlert.name}
+                onChange={(e) => setFormAlert((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Sarah M."
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold">Location</label>
+              <Input
+                value={formAlert.location}
+                onChange={(e) => setFormAlert((f) => ({ ...f, location: e.target.value }))}
+                placeholder="e.g. London, UK"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold">Drop / Prize Claimed</label>
+              <Input
+                value={formAlert.dropName}
+                onChange={(e) => setFormAlert((f) => ({ ...f, dropName: e.target.value }))}
+                placeholder="e.g. Scarlet High Tops"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold">Time Text</label>
+              <Input
+                value={formAlert.timeAgo}
+                onChange={(e) => setFormAlert((f) => ({ ...f, timeAgo: e.target.value }))}
+                placeholder="e.g. Just now, 2m ago"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" className="rounded-full font-bold" onClick={handleSaveItem}>
+              <Check size={13} className="mr-1" /> Save alert
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {ext.demoNotifications.map((alertItem) => (
+          <div
+            key={alertItem.id}
+            className="flex items-center justify-between rounded-md border border-border bg-card p-3 shadow-xs"
+          >
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-xs">
+                {alertItem.name.slice(0, 1) || "U"}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-foreground truncate">
+                  {alertItem.name} <span className="font-normal text-muted-foreground">({alertItem.location})</span>
+                </p>
+                <p className="text-[11px] text-muted-foreground truncate">
+                  Claimed <strong>{alertItem.dropName}</strong> · {alertItem.timeAgo}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0 ml-3">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                onClick={() => handleStartEdit(alertItem)}
+              >
+                <Edit2 size={13} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                onClick={() => handleDeleteItem(alertItem.id)}
+              >
+                <Trash2 size={13} />
+              </Button>
+            </div>
+          </div>
+        ))}
+        {ext.demoNotifications.length === 0 && (
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            No claim notifications configured. Add one or click Reset Defaults.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

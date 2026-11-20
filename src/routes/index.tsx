@@ -29,6 +29,11 @@ import { Input } from "@/components/ui/input";
 import { QrCode } from "@/components/QrCode";
 import { COUNTRIES } from "@/lib/countries";
 import {
+  getExtendedContent,
+  type ExtendedSiteContent,
+  type DemoNotification,
+} from "@/lib/siteContent";
+import {
   fetchDrops,
   fetchSiteConfig,
   fetchWalletConfig,
@@ -199,6 +204,62 @@ function Index() {
   const [submitting, setSubmitting] = useState(false);
   const [claimDone, setClaimDone] = useState(false);
   const [checkoutDone, setCheckoutDone] = useState(false);
+  const [extContent, setExtContent] = useState<ExtendedSiteContent>(() => getExtendedContent());
+  const [currentAlert, setCurrentAlert] = useState<DemoNotification | null>(null);
+
+  // Sync extended site content and alerts when admin updates it
+  useEffect(() => {
+    const handler = () => {
+      setExtContent(getExtendedContent());
+    };
+    window.addEventListener("dropclub_content_updated", handler);
+    window.addEventListener("storage", handler);
+    return () => {
+      window.removeEventListener("dropclub_content_updated", handler);
+      window.removeEventListener("storage", handler);
+    };
+  }, []);
+
+  // 2-minute interval demo claim notifications with mobile vibration
+  useEffect(() => {
+    if (!extContent.demoNotificationsEnabled || extContent.demoNotifications.length === 0) {
+      setCurrentAlert(null);
+      return;
+    }
+
+    let idx = 0;
+    const triggerAlert = () => {
+      const list = extContent.demoNotifications;
+      if (!list || list.length === 0) return;
+      const notif = list[idx % list.length];
+      idx++;
+      setCurrentAlert(notif);
+
+      // Trigger device vibration on supported mobile devices
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        try {
+          navigator.vibrate([120, 60, 120]);
+        } catch {
+          // Unsupported or blocked in desktop context
+        }
+      }
+
+      // Auto dismiss after 7 seconds
+      window.setTimeout(() => {
+        setCurrentAlert((active) => (active?.id === notif.id ? null : active));
+      }, 7000);
+    };
+
+    // Show initial notification early (6 seconds) for immediate demo feedback
+    const initialTimer = window.setTimeout(triggerAlert, 6000);
+    // Cycle every 2 minutes (120,000 ms)
+    const intervalTimer = window.setInterval(triggerAlert, 120000);
+
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(intervalTimer);
+    };
+  }, [extContent.demoNotificationsEnabled, extContent.demoNotifications]);
 
   useEffect(() => {
     const tick = window.setInterval(() => {
@@ -419,59 +480,67 @@ function Index() {
 
       {/* Big Top Countdown Bar */}
       {heroFeaturedDrop && (
-        <aside className="top-countdown-bar" aria-label="Limited drop countdown">
-          <div className="top-countdown-inner">
-            <div className="top-countdown-lead">
-              <span className="top-countdown-badge">
-                <span className="live-dot" /> FLASH DROP CLOSING
-              </span>
-              <span className="top-countdown-text">
-                <strong>{heroFeaturedDrop.name}</strong> · Claim window closing soon!
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="top-countdown-timer">
-                {(() => {
-                  const rem = Math.max(0, heroFeaturedDrop.time_left - elapsed);
-                  const days = Math.floor(rem / 86400);
-                  const hours = Math.floor((rem % 86400) / 3600);
-                  const mins = Math.floor((rem % 3600) / 60);
-                  const secs = rem % 60;
-                  return (
-                    <>
-                      <div className="top-countdown-card">
-                        <span className="top-countdown-digit">{String(days).padStart(2, "0")}</span>
-                        <span className="top-countdown-unit-tag">days</span>
-                      </div>
-                      <span className="top-countdown-sep">:</span>
-                      <div className="top-countdown-card">
-                        <span className="top-countdown-digit">{String(hours).padStart(2, "0")}</span>
-                        <span className="top-countdown-unit-tag">hrs</span>
-                      </div>
-                      <span className="top-countdown-sep">:</span>
-                      <div className="top-countdown-card">
-                        <span className="top-countdown-digit">{String(mins).padStart(2, "0")}</span>
-                        <span className="top-countdown-unit-tag">min</span>
-                      </div>
-                      <span className="top-countdown-sep">:</span>
-                      <div className="top-countdown-card">
-                        <span className="top-countdown-digit">{String(secs).padStart(2, "0")}</span>
-                        <span className="top-countdown-unit-tag">sec</span>
-                      </div>
-                    </>
-                  );
-                })()}
+        (() => {
+          const rem = Math.max(0, heroFeaturedDrop.time_left - elapsed);
+          const isExpired = rem <= 0;
+          const days = Math.floor(rem / 86400);
+          const hours = Math.floor((rem % 86400) / 3600);
+          const mins = Math.floor((rem % 3600) / 60);
+          const secs = rem % 60;
+
+          return (
+            <aside className="top-countdown-bar" aria-label="Limited drop countdown">
+              <div className="top-countdown-inner">
+                <div className="top-countdown-lead">
+                  <span className="top-countdown-badge">
+                    <span className={isExpired ? "live-dot bg-destructive animate-none" : "live-dot"} />
+                    {isExpired ? "ROUND CLOSED" : (extContent.topCountdownBadge || "FLASH DROP CLOSING")}
+                  </span>
+                  <span className="top-countdown-text">
+                    <strong>{heroFeaturedDrop.name}</strong> · {isExpired ? "Claim window has ended for this round!" : (extContent.topCountdownText || "Claim window closing soon!")}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className={`top-countdown-timer ${isExpired ? "opacity-60" : ""}`}>
+                    <div className="top-countdown-card">
+                      <span className="top-countdown-digit">{String(days).padStart(2, "0")}</span>
+                      <span className="top-countdown-unit-tag">days</span>
+                    </div>
+                    <span className="top-countdown-sep">:</span>
+                    <div className="top-countdown-card">
+                      <span className="top-countdown-digit">{String(hours).padStart(2, "0")}</span>
+                      <span className="top-countdown-unit-tag">hrs</span>
+                    </div>
+                    <span className="top-countdown-sep">:</span>
+                    <div className="top-countdown-card">
+                      <span className="top-countdown-digit">{String(mins).padStart(2, "0")}</span>
+                      <span className="top-countdown-unit-tag">min</span>
+                    </div>
+                    <span className="top-countdown-sep">:</span>
+                    <div className="top-countdown-card">
+                      <span className="top-countdown-digit">{String(secs).padStart(2, "0")}</span>
+                      <span className="top-countdown-unit-tag">sec</span>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="top-countdown-cta"
+                    disabled={isExpired}
+                    onClick={() => !isExpired && beginDropAction(heroFeaturedDrop)}
+                  >
+                    {isExpired ? (
+                      "Round Ended"
+                    ) : (
+                      <>
+                        <Ticket size={13} className="mr-1" /> Claim now
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
-              <Button
-                size="sm"
-                className="top-countdown-cta"
-                onClick={() => beginDropAction(heroFeaturedDrop)}
-              >
-                <Ticket size={13} className="mr-1" /> Claim now
-              </Button>
-            </div>
-          </div>
-        </aside>
+            </aside>
+          );
+        })()
       )}
 
       {/* Header */}
@@ -566,9 +635,9 @@ function Index() {
           <div>
             <div className="section-topline">
               <div>
-                <span className="eyebrow text-primary"><Sparkles size={12} /> HANDPICKED FOR YOU</span>
-                <h2 className="section-title mt-2" id="drops-heading">The good stuff</h2>
-                <p className="section-caption">Good things do not wait. Neither do these.</p>
+                <span className="eyebrow text-primary"><Sparkles size={12} /> {extContent.sectionEyebrow || "HANDPICKED FOR YOU"}</span>
+                <h2 className="section-title mt-2" id="drops-heading">{extContent.sectionTitle || "The good stuff"}</h2>
+                <p className="section-caption">{extContent.sectionCaption || "Good things do not wait. Neither do these."}</p>
               </div>
               <a className="text-link hidden items-center gap-1 text-[10px] font-bold text-primary sm:flex" href="#drops">See all drops <ArrowRight size={13} /></a>
             </div>
@@ -582,50 +651,59 @@ function Index() {
               ))}
             </div>
             <div className="product-grid">
-              {visibleDrops.map((drop) => (
-                <article className="product-card" key={drop.id}>
-                  <div className={`product-image-frame ${drop.kind === "giveaway" ? "is-sneaker" : ""}`}>
-                    {drop.image_url ? (
-                      <img className="product-image" src={drop.image_url} alt={drop.image_alt} />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-muted">
-                        <Gift size={28} className="text-muted-foreground/40" />
-                      </div>
-                    )}
-                    <span className={`product-badge ${drop.kind === "shop" ? "is-paid" : ""}`}>
-                      {drop.kind === "giveaway" ? <Gift size={10} /> : <Zap size={10} />}
-                      {drop.kind === "giveaway" ? "Free giveaway" : "Available to buy"}
-                    </span>
-                    <Button variant="ghost" size="icon" className="product-save" aria-label={savedDrops.includes(drop.id) ? `Remove ${drop.name} from saved` : `Save ${drop.name}`} onClick={() => toggleSaved(drop.id)}>
-                      <Heart size={14} fill={savedDrops.includes(drop.id) ? "currentColor" : "none"} />
-                    </Button>
-                  </div>
-                  <div className="product-card-body">
-                    <div className="product-category">{drop.category}</div>
-                    <h3 className="product-name">{drop.name}</h3>
-                    <div className="product-value">
-                      {drop.kind === "shop"
-                        ? <><strong>{drop.amount}</strong> <span>· {drop.prize_value}</span></>
-                        : <><strong>{drop.prize_value}</strong> prize value</>}
-                    </div>
-                    <div className="product-timer">
-                      <Clock3 size={13} />
-                      <span>{formatCountdown(drop.time_left - elapsed)}</span>
-                      <span className="product-timer-label">{drop.kind === "shop" ? "OFFER ENDS" : "LEFT TO CLAIM"}</span>
-                    </div>
-                    <div className="product-footer">
-                      <span className="entry-count"><PackageCheck size={12} /> {drop.delivery_fee !== "Free" ? drop.delivery_fee + " delivery" : "Free delivery"} · {drop.delivery_time}</span>
-                      <Button size="sm" className="product-cta rounded-full" onClick={() => beginDropAction(drop)}>
-                        {drop.kind === "giveaway" ? "Claim" : "Shop"} <ArrowRight size={12} />
+              {visibleDrops.map((drop) => {
+                const isDropExpired = drop.time_left - elapsed <= 0;
+                return (
+                  <article className="product-card" key={drop.id}>
+                    <div className={`product-image-frame ${drop.kind === "giveaway" ? "is-sneaker" : ""}`}>
+                      {drop.image_url ? (
+                        <img className="product-image" src={drop.image_url} alt={drop.image_alt} />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-muted">
+                          <Gift size={28} className="text-muted-foreground/40" />
+                        </div>
+                      )}
+                      <span className={`product-badge ${drop.kind === "shop" ? "is-paid" : ""}`}>
+                        {drop.kind === "giveaway" ? <Gift size={10} /> : <Zap size={10} />}
+                        {drop.kind === "giveaway" ? "Free giveaway" : "Available to buy"}
+                      </span>
+                      <Button variant="ghost" size="icon" className="product-save" aria-label={savedDrops.includes(drop.id) ? `Remove ${drop.name} from saved` : `Save ${drop.name}`} onClick={() => toggleSaved(drop.id)}>
+                        <Heart size={14} fill={savedDrops.includes(drop.id) ? "currentColor" : "none"} />
                       </Button>
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-[8px] text-muted-foreground">
-                      <span><Ticket size={10} className="mr-1 inline" />{drop.entry_label}</span>
-                      <span>{drop.shipping === "Free" ? "Free shipping" : drop.delivery_fee + " delivery"}</span>
+                    <div className="product-card-body">
+                      <div className="product-category">{drop.category}</div>
+                      <h3 className="product-name">{drop.name}</h3>
+                      <div className="product-value">
+                        {drop.kind === "shop"
+                          ? <><strong>{drop.amount}</strong> <span>· {drop.prize_value}</span></>
+                          : <><strong>{drop.prize_value}</strong> prize value</>}
+                      </div>
+                      <div className={`product-timer ${isDropExpired ? "opacity-60" : ""}`}>
+                        <Clock3 size={13} />
+                        <span>{isDropExpired ? "00:00:00" : formatCountdown(drop.time_left - elapsed)}</span>
+                        <span className="product-timer-label">{isDropExpired ? "ROUND ENDED" : (drop.kind === "shop" ? "OFFER ENDS" : "LEFT TO CLAIM")}</span>
+                      </div>
+                      <div className="product-footer">
+                        <span className="entry-count"><PackageCheck size={12} /> {drop.delivery_fee !== "Free" ? drop.delivery_fee + " delivery" : "Free delivery"} · {drop.delivery_time}</span>
+                        <Button
+                          size="sm"
+                          className="product-cta rounded-full"
+                          disabled={isDropExpired}
+                          onClick={() => !isDropExpired && beginDropAction(drop)}
+                        >
+                          {isDropExpired ? "Ended" : (drop.kind === "giveaway" ? "Claim" : "Shop")}
+                          {!isDropExpired && <ArrowRight size={12} />}
+                        </Button>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-[8px] text-muted-foreground">
+                        <span><Ticket size={10} className="mr-1 inline" />{drop.entry_label}</span>
+                        <span>{drop.shipping === "Free" ? "Free shipping" : drop.delivery_fee + " delivery"}</span>
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
               {visibleDrops.length === 0 && (
                 <p className="col-span-full py-12 text-center text-sm text-muted-foreground">
                   {drops.length === 0 ? "No drops available yet. Check back soon." : "No drops match that search."}
@@ -1075,6 +1153,32 @@ function Index() {
           <Button variant="outline" className="w-full rounded-full" onClick={() => setNotificationsOpen(false)}>Lovely, thanks <Check size={14} /></Button>
         </DialogContent>
       </Dialog>
+
+      {/* ── Live Claim Notification Popup (2-min interval + vibrate) ── */}
+      {currentAlert && (
+        <aside className="claim-alert-popup" aria-live="polite">
+          <div className="claim-alert-icon">
+            <Gift size={16} />
+          </div>
+          <div className="claim-alert-content">
+            <div className="claim-alert-title">
+              <span>{currentAlert.name}</span>
+              <span className="claim-alert-location">({currentAlert.location})</span>
+            </div>
+            <div className="claim-alert-desc">
+              Just claimed <strong>{currentAlert.dropName}</strong> · {currentAlert.timeAgo}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="claim-alert-close"
+            onClick={() => setCurrentAlert(null)}
+            aria-label="Close notification"
+          >
+            <X size={12} />
+          </button>
+        </aside>
+      )}
 
       {/* ── Toast stack ────────────────────────────────────────── */}
       <div className="toast-stack" aria-live="polite" aria-atomic="false">
