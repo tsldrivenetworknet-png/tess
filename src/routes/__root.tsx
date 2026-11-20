@@ -83,12 +83,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Drop Club — limited drops, real rewards" },
       { name: "description", content: "Discover limited-time prize drops and standout finds at Drop Club." },
-      { name: "author", content: "Lovable" },
+      { name: "author", content: "Drop Club" },
       { property: "og:title", content: "Drop Club — limited drops, real rewards" },
       { property: "og:description", content: "Discover limited-time prize drops and standout finds at Drop Club." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Drop Club — limited drops, real rewards" },
+      { name: "twitter:description", content: "Discover limited-time prize drops and standout finds at Drop Club." },
     ],
     links: [
       {
