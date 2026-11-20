@@ -34,37 +34,112 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-function ImageUploadBox({ label, value, onChange, aspectClass = "aspect-video" }: {
-  label: string; value: string; onChange: (url: string, file: File) => void; aspectClass?: string;
+function ImageUploadBox({
+  label,
+  value,
+  onChange,
+  onRemove,
+  onUrlInput,
+  aspectClass = "aspect-video",
+}: {
+  label: string;
+  value: string;
+  onChange: (url: string, file: File) => void;
+  onRemove?: () => void;
+  onUrlInput?: (url: string) => void;
+  aspectClass?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [urlText, setUrlText] = useState("");
+
   const handleFile = async (file: File) => {
     const preview = await fileToDataUrl(file);
     onChange(preview, file);
   };
+
+  const handleApplyUrl = () => {
+    if (urlText.trim()) {
+      if (onUrlInput) {
+        onUrlInput(urlText.trim());
+      } else {
+        onChange(urlText.trim(), new File([], "url-image"));
+      }
+      setShowUrlInput(false);
+    }
+  };
+
   return (
     <div className="admin-field">
-      <span className="admin-label">{label}</span>
-      <div className={`admin-upload-box ${aspectClass} group cursor-pointer`}
+      <div className="flex items-center justify-between mb-1">
+        <span className="admin-label">{label}</span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="text-[10px] text-muted-foreground hover:text-foreground underline cursor-pointer"
+            onClick={() => setShowUrlInput((v) => !v)}
+          >
+            {showUrlInput ? "Hide URL" : "Enter URL"}
+          </button>
+          {value && onRemove && (
+            <button
+              type="button"
+              className="text-[10px] text-destructive hover:underline cursor-pointer"
+              onClick={onRemove}
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      </div>
+      {showUrlInput && (
+        <div className="flex items-center gap-2 mb-2">
+          <Input
+            value={urlText}
+            onChange={(e) => setUrlText(e.target.value)}
+            placeholder="Paste image URL (https://...)"
+            className="h-8 text-xs"
+          />
+          <Button size="sm" type="button" className="h-8 text-xs px-3" onClick={handleApplyUrl}>
+            Apply
+          </Button>
+        </div>
+      )}
+      <div
+        className={`admin-upload-box ${aspectClass} group cursor-pointer`}
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}>
+        onDrop={(e) => {
+          e.preventDefault();
+          const f = e.dataTransfer.files[0];
+          if (f) handleFile(f);
+        }}
+      >
         {value ? (
           <div className="relative h-full w-full">
-            <img src={value} alt={label} className="h-full w-full rounded-md object-cover" />
+            <img src={value} alt={label} className="h-full w-full rounded-md object-contain p-1" />
             <div className="absolute inset-0 flex items-center justify-center rounded-md bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
               <span className="text-xs font-bold text-white">Change image</span>
             </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            <ImagePlus size={28} /><span className="text-xs font-semibold">Click or drag to upload</span>
-            <span className="text-[10px]">PNG, JPG, WebP</span>
+            <ImagePlus size={28} />
+            <span className="text-xs font-semibold">Click or drag to upload</span>
+            <span className="text-[10px]">PNG, JPG, WebP, SVG</span>
           </div>
         )}
       </div>
-      <input ref={inputRef} type="file" accept="image/*" className="sr-only"
-        onChange={async (e) => { const f = e.target.files?.[0]; if (f) await handleFile(f); }} />
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="sr-only"
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          if (f) await handleFile(f);
+        }}
+      />
     </div>
   );
 }
@@ -211,7 +286,16 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { fetchSiteConfig().then(setForm).finally(() => setLoading(false)); }, []);
+  useEffect(() => {
+    fetchSiteConfig().then((cfg) => {
+      if (cfg) {
+        setForm({
+          ...cfg,
+          hero_headline: (cfg.hero_headline || "").replace(/\\n/g, "\n"),
+        });
+      }
+    }).finally(() => setLoading(false));
+  }, []);
 
   if (loading || !form) return <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-primary" /></div>;
 
@@ -222,6 +306,15 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
     setPendingFiles((p) => ({ ...p, [key]: file }));
   };
 
+  const removeImage = (key: keyof DbSiteConfig) => () => {
+    setForm((f) => f ? { ...f, [key]: "" } : f);
+    setPendingFiles((p) => {
+      const copy = { ...p };
+      delete copy[key];
+      return copy;
+    });
+  };
+
   const save = async () => {
     if (!form) return;
     setSaving(true);
@@ -229,12 +322,19 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
       const updates: Partial<DbSiteConfig> = { ...form };
       for (const [key, file] of Object.entries(pendingFiles)) {
         const path = `site/${key}-${Date.now()}`;
-        const url = await uploadImage(file, path);
-        (updates as Record<string, string>)[key] = url;
+        try {
+          const url = await uploadImage(file, path);
+          (updates as Record<string, string>)[key] = url;
+        } catch (uploadErr) {
+          console.warn(`Storage upload for ${key} failed, falling back to data URL`, uploadErr);
+        }
       }
       await saveSiteConfig(updates);
       setPendingFiles({});
       onSaved();
+    } catch (err: any) {
+      console.error("Save error:", err);
+      alert("Failed to save site settings: " + (err.message || String(err)));
     } finally {
       setSaving(false);
     }
@@ -245,8 +345,22 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
       <div className="admin-form-section">
         <h2 className="admin-section-title">Brand</h2>
         <div className="admin-field"><label className="admin-label">Site name</label><Input value={form.site_name} onChange={(e) => set("site_name")(e.target.value)} placeholder="dropclub" /></div>
-        <ImageUploadBox label="Site logo (replaces text name in header)" value={form.logo_url} onChange={handleImageChange("logo_url")} aspectClass="aspect-[4/1] max-h-24" />
-        <ImageUploadBox label="Site icon / favicon" value={form.icon_url} onChange={handleImageChange("icon_url")} aspectClass="aspect-square max-h-24 max-w-24" />
+        <ImageUploadBox
+          label="Site logo (replaces text name in header)"
+          value={form.logo_url}
+          onChange={handleImageChange("logo_url")}
+          onRemove={removeImage("logo_url")}
+          onUrlInput={(url) => { set("logo_url")(url); setPendingFiles((p) => { const c = { ...p }; delete c.logo_url; return c; }); }}
+          aspectClass="aspect-[4/1] max-h-24"
+        />
+        <ImageUploadBox
+          label="Site icon / favicon"
+          value={form.icon_url}
+          onChange={handleImageChange("icon_url")}
+          onRemove={removeImage("icon_url")}
+          onUrlInput={(url) => { set("icon_url")(url); setPendingFiles((p) => { const c = { ...p }; delete c.icon_url; return c; }); }}
+          aspectClass="aspect-square max-h-24 max-w-24"
+        />
       </div>
       <div className="admin-form-section">
         <h2 className="admin-section-title">Announcement banner</h2>
@@ -255,12 +369,18 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
       <div className="admin-form-section">
         <h2 className="admin-section-title">Hero section</h2>
         <div className="admin-field">
-          <label className="admin-label">Headline (last line is italic)</label>
+          <label className="admin-label">Headline (press Enter for a new line; last line is italic)</label>
           <Textarea rows={3} value={form.hero_headline} onChange={(e) => set("hero_headline")(e.target.value)} />
         </div>
         <div className="admin-field"><label className="admin-label">Subtitle</label><Input value={form.hero_subtitle} onChange={(e) => set("hero_subtitle")(e.target.value)} /></div>
-        <ImageUploadBox label="Hero image (overrides first drop image)" value={form.hero_image_url} onChange={handleImageChange("hero_image_url")} aspectClass="aspect-[16/9] max-h-56" />
-        {form.hero_image_url && <Button size="sm" variant="outline" className="h-7 rounded-full text-[10px] text-destructive" onClick={() => set("hero_image_url")("")}><Trash2 size={11} /> Remove hero image</Button>}
+        <ImageUploadBox
+          label="Hero image (overrides first drop image)"
+          value={form.hero_image_url}
+          onChange={handleImageChange("hero_image_url")}
+          onRemove={removeImage("hero_image_url")}
+          onUrlInput={(url) => { set("hero_image_url")(url); setPendingFiles((p) => { const c = { ...p }; delete c.hero_image_url; return c; }); }}
+          aspectClass="aspect-[16/9] max-h-56"
+        />
         <div className="grid grid-cols-3 gap-3">
           <div className="admin-field"><label className="admin-label">Entry count</label><Input value={form.hero_entries} onChange={(e) => set("hero_entries")(e.target.value)} placeholder="2,184" /></div>
           <div className="admin-field"><label className="admin-label">Prize value</label><Input value={form.hero_prize_value} onChange={(e) => set("hero_prize_value")(e.target.value)} placeholder="$240" /></div>

