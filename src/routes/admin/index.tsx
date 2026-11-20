@@ -14,7 +14,7 @@ import {
   fetchAllDrops, createDrop, updateDrop, deleteDrop,
   fetchWalletConfig, saveWalletConfig,
   fetchOrders, updateOrderStatus,
-  uploadImage,
+  uploadImage, fetchWalletQrUrls, uploadWalletQr,
   type DbSiteConfig, type DbDrop, type DbWalletConfig, type DbOrder,
 } from "@/lib/supabase";
 
@@ -577,8 +577,18 @@ function WalletSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
   const [showP, setShowP] = useState(false);
   const [showS, setShowS] = useState(false);
   const [newCoin, setNewCoin] = useState("");
+  const [primaryQr, setPrimaryQr] = useState("");
+  const [secondaryQr, setSecondaryQr] = useState("");
+  const [pendingQrFiles, setPendingQrFiles] = useState<{ primary?: File; secondary?: File }>({});
 
-  useEffect(() => { fetchWalletConfig().then(setForm).finally(() => setLoading(false)); }, []);
+  useEffect(() => {
+    fetchWalletConfig().then(setForm).finally(() => setLoading(false));
+    fetchWalletQrUrls().then((res) => {
+      setPrimaryQr(res.primaryQr);
+      setSecondaryQr(res.secondaryQr);
+    });
+  }, []);
+
   if (loading || !form) return <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-primary" /></div>;
 
   const set = (key: keyof DbWalletConfig) => (val: string) => setForm((f) => f ? { ...f, [key]: val } : f);
@@ -589,10 +599,36 @@ function WalletSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
     setNewCoin("");
   };
   const removeCoin = (c: string) => setForm((f) => f ? { ...f, accepted_coins: f.accepted_coins.filter((x) => x !== c) } : f);
+
   const save = async () => {
     if (!form) return;
     setSaving(true);
-    try { await saveWalletConfig(form); onSaved(); } finally { setSaving(false); }
+    try {
+      await saveWalletConfig(form);
+      if (pendingQrFiles.primary) {
+        try {
+          const url = await uploadWalletQr("primary", pendingQrFiles.primary);
+          setPrimaryQr(url);
+        } catch (err) {
+          console.warn("Primary QR upload issue:", err);
+        }
+      }
+      if (pendingQrFiles.secondary) {
+        try {
+          const url = await uploadWalletQr("secondary", pendingQrFiles.secondary);
+          setSecondaryQr(url);
+        } catch (err) {
+          console.warn("Secondary QR upload issue:", err);
+        }
+      }
+      setPendingQrFiles({});
+      onSaved();
+    } catch (err: any) {
+      console.error("Save error:", err);
+      alert("Error saving wallet settings: " + (err.message || String(err)));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -613,7 +649,30 @@ function WalletSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
           <div className="admin-field"><label className="admin-label">Coin</label><Input value={form.primary_coin} onChange={(e) => set("primary_coin")(e.target.value.toUpperCase())} placeholder="ETH" /></div>
         </div>
         {form.primary_address && <div className="mt-2 rounded-md bg-muted p-3"><p className="text-[9px] font-bold uppercase text-muted-foreground mb-1">Preview (shown to users)</p><p className="font-mono text-xs break-all">{form.primary_address}</p></div>}
+        
+        {/* Upload QR Code for Primary Wallet */}
+        <div className="mt-3">
+          <ImageUploadBox
+            label="Primary QR Code (optional — auto-generates if not uploaded)"
+            value={primaryQr}
+            onChange={(preview, file) => {
+              setPrimaryQr(preview);
+              setPendingQrFiles((p) => ({ ...p, primary: file }));
+            }}
+            onRemove={() => {
+              setPrimaryQr("");
+              localStorage.removeItem("dropclub_primary_qr");
+              setPendingQrFiles((p) => { const c = { ...p }; delete c.primary; return c; });
+            }}
+            onUrlInput={(url) => {
+              setPrimaryQr(url);
+              localStorage.setItem("dropclub_primary_qr", url);
+            }}
+            aspectClass="aspect-square max-h-36 max-w-36"
+          />
+        </div>
       </div>
+
       <div className="admin-form-section">
         <h2 className="admin-section-title">Secondary wallet</h2>
         <div className="grid grid-cols-3 gap-4">
@@ -629,7 +688,30 @@ function WalletSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
           </div>
           <div className="admin-field"><label className="admin-label">Coin</label><Input value={form.secondary_coin} onChange={(e) => set("secondary_coin")(e.target.value.toUpperCase())} placeholder="BTC" /></div>
         </div>
+
+        {/* Upload QR Code for Secondary Wallet */}
+        <div className="mt-3">
+          <ImageUploadBox
+            label="Secondary QR Code (optional — auto-generates if not uploaded)"
+            value={secondaryQr}
+            onChange={(preview, file) => {
+              setSecondaryQr(preview);
+              setPendingQrFiles((p) => ({ ...p, secondary: file }));
+            }}
+            onRemove={() => {
+              setSecondaryQr("");
+              localStorage.removeItem("dropclub_secondary_qr");
+              setPendingQrFiles((p) => { const c = { ...p }; delete c.secondary; return c; });
+            }}
+            onUrlInput={(url) => {
+              setSecondaryQr(url);
+              localStorage.setItem("dropclub_secondary_qr", url);
+            }}
+            aspectClass="aspect-square max-h-36 max-w-36"
+          />
+        </div>
       </div>
+
       <div className="admin-form-section">
         <h2 className="admin-section-title">Accepted coins (shown as payment options at checkout)</h2>
         <div className="flex flex-wrap gap-2 mb-3">

