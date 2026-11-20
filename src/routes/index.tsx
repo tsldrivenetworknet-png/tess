@@ -1,0 +1,832 @@
+﻿import { useEffect, useMemo, useState, useCallback } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import {
+  ArrowRight,
+  Bell,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  Copy,
+  Gift,
+  Heart,
+  Info,
+  Menu,
+  PackageCheck,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Ticket,
+  Wallet,
+  X,
+  Zap,
+  Loader2,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { QrCode } from "@/components/QrCode";
+import {
+  fetchDrops,
+  fetchSiteConfig,
+  fetchWalletConfig,
+  createOrder,
+  type DbDrop,
+  type DbSiteConfig,
+  type DbWalletConfig,
+} from "@/lib/supabase";
+
+type DropCategory = "All drops" | "Giveaways" | "Shop";
+const categories: DropCategory[] = ["All drops", "Giveaways", "Shop"];
+
+const DEFAULT_SITE: DbSiteConfig = {
+  id: 1,
+  site_name: "dropclub",
+  logo_url: "",
+  icon_url: "",
+  announcement_text: "FRESH FINDS. REAL WINNERS. YOUR NEXT FAVOURITE STARTS HERE.",
+  hero_headline: "A little luck.\nA lot of love.",
+  hero_subtitle: "Your next favourite thing is one drop away.",
+  hero_image_url: "",
+  hero_entries: "",
+  hero_prize_value: "",
+  hero_delivery_fee: "",
+  footer_text: "2026 Drop Club. Good things happen here.",
+  updated_at: "",
+};
+
+const DEFAULT_WALLET: DbWalletConfig = {
+  id: 1,
+  primary_address: "",
+  primary_coin: "ETH",
+  secondary_address: "",
+  secondary_coin: "BTC",
+  accepted_coins: ["ETH", "BTC", "USDC"],
+  updated_at: "",
+};
+
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Drop Club - Limited-time prizes and finds" },
+      { name: "description", content: "Claim curated prize drops or shop standout finds." },
+      { property: "og:title", content: "Drop Club - Limited-time prizes and finds" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  component: Index,
+});
+
+function formatCountdown(totalSeconds: number) {
+  const remaining = Math.max(0, totalSeconds);
+  const days = Math.floor(remaining / 86400);
+  const hours = Math.floor((remaining % 86400) / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
+  const seconds = remaining % 60;
+  return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+}
+
+function ClockBlocks({ seconds, label }: { seconds: number; label?: string }) {
+  const remaining = Math.max(0, seconds);
+  const values = [
+    { value: Math.floor(remaining / 86400), label: "days" },
+    { value: Math.floor((remaining % 86400) / 3600), label: "hrs" },
+    { value: Math.floor((remaining % 3600) / 60), label: "min" },
+    { value: remaining % 60, label: "sec" },
+  ];
+  return (
+    <div className="countdown-wrap" aria-label={`${label ?? "Drop ends in"} ${formatCountdown(seconds)}`}>
+      {label ? <span className="countdown-label">{label}</span> : null}
+      <div className="countdown" aria-hidden="true">
+        {values.map((part, index) => (
+          <span className="countdown" key={part.label}>
+            {index > 0 ? <span className="countdown-colon">:</span> : null}
+            <span className="countdown-unit">
+              <span className="countdown-number">{String(part.value).padStart(2, "0")}</span>
+              <span className="countdown-caption">{part.label}</span>
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+    >
+      {copied ? <Check size={11} /> : <Copy size={11} />}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+function Index() {
+  // ── Data from Supabase ───────────────────────────────────────
+  const [drops, setDrops] = useState<DbDrop[]>([]);
+  const [siteConfig, setSiteConfig] = useState<DbSiteConfig>(DEFAULT_SITE);
+  const [walletConfig, setWalletConfig] = useState<DbWalletConfig>(DEFAULT_WALLET);
+  const [loading, setLoading] = useState(true);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [dropsData, siteData, walletData] = await Promise.all([
+        fetchDrops(),
+        fetchSiteConfig(),
+        fetchWalletConfig(),
+      ]);
+      setDrops(dropsData);
+      setSiteConfig(siteData);
+      setWalletConfig(walletData);
+    } catch (err) {
+      console.error("Failed to load data", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Reload when window regains focus (admin may have changed data)
+  useEffect(() => {
+    const onFocus = () => loadData();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadData]);
+
+  // ── UI state ─────────────────────────────────────────────────
+  const [elapsed, setElapsed] = useState(0);
+  const [category, setCategory] = useState<DropCategory>("All drops");
+  const [selectedDrop, setSelectedDrop] = useState<DbDrop | null>(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [crypto, setCrypto] = useState("");
+  const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [address, setAddress] = useState("");
+  const [savedDrops, setSavedDrops] = useState<string[]>([]);
+  const [toasts, setToasts] = useState<{ id: number; title: string; message: string }[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [claimDone, setClaimDone] = useState(false);
+  const [checkoutDone, setCheckoutDone] = useState(false);
+
+  useEffect(() => {
+    const tick = window.setInterval(() => setElapsed((c) => c + 1), 1000);
+    return () => window.clearInterval(tick);
+  }, []);
+
+  // Set default crypto when wallet loads
+  useEffect(() => {
+    if (walletConfig.accepted_coins.length > 0 && !crypto) {
+      setCrypto(walletConfig.accepted_coins[0]);
+    }
+  }, [walletConfig, crypto]);
+
+  const visibleDrops = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return drops.filter((drop) => {
+      const matchesCategory =
+        category === "All drops" ||
+        (category === "Giveaways" && drop.kind === "giveaway") ||
+        (category === "Shop" && drop.kind === "shop");
+      return matchesCategory && (!query || `${drop.name} ${drop.category}`.toLowerCase().includes(query));
+    });
+  }, [drops, category, search]);
+
+  const addToast = (title: string, message: string) => {
+    const id = Date.now() + Math.random();
+    setToasts((items) => [...items, { id, title, message }]);
+    window.setTimeout(() => setToasts((items) => items.filter((t) => t.id !== id)), 4800);
+  };
+
+  const resetForm = () => {
+    setEmail("");
+    setFullName("");
+    setAddress("");
+  };
+
+  const openClaim = (drop: DbDrop) => {
+    setSelectedDrop(drop);
+    setClaimDone(false);
+    resetForm();
+    setClaimOpen(true);
+  };
+
+  const openCheckout = (drop: DbDrop) => {
+    setSelectedDrop(drop);
+    setCheckoutDone(false);
+    resetForm();
+    setCrypto(walletConfig.accepted_coins[0] ?? "ETH");
+    setCheckoutOpen(true);
+  };
+
+  const beginDropAction = (drop: DbDrop) => {
+    if (drop.kind === "giveaway") openClaim(drop);
+    else openCheckout(drop);
+  };
+
+  // Which wallet address to show for selected coin
+  const walletAddress =
+    crypto === walletConfig.primary_coin
+      ? walletConfig.primary_address
+      : crypto === walletConfig.secondary_coin
+        ? walletConfig.secondary_address
+        : walletConfig.primary_address;
+
+  // Submit giveaway claim
+  const submitClaim = async () => {
+    if (!selectedDrop) return;
+    setSubmitting(true);
+    try {
+      await createOrder({
+        drop_id: selectedDrop.id,
+        drop_name: selectedDrop.name,
+        kind: "giveaway",
+        email,
+        full_name: fullName,
+        address,
+        status: "entered",
+        crypto: "",
+        amount: "",
+        delivery_fee: selectedDrop.delivery_fee,
+        notes: "",
+      });
+      setClaimDone(true);
+    } catch (err) {
+      console.error(err);
+      addToast("Something went wrong", "Could not save your claim. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Submit shop order
+  const submitCheckout = async () => {
+    if (!selectedDrop) return;
+    setSubmitting(true);
+    try {
+      await createOrder({
+        drop_id: selectedDrop.id,
+        drop_name: selectedDrop.name,
+        kind: "shop",
+        email,
+        full_name: fullName,
+        address,
+        status: "entered",
+        crypto,
+        amount: selectedDrop.amount,
+        delivery_fee: selectedDrop.delivery_fee,
+        notes: "",
+      });
+      setCheckoutDone(true);
+    } catch (err) {
+      console.error(err);
+      addToast("Something went wrong", "Could not save your order. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleSaved = (id: string) => {
+    setSavedDrops((current) => {
+      const isSaved = current.includes(id);
+      addToast(
+        isSaved ? "Removed from saved" : "Saved for later",
+        isSaved ? "Drop removed from your list." : "We will keep this close by.",
+      );
+      return isSaved ? current.filter((s) => s !== id) : [...current, id];
+    });
+  };
+
+  const heroFeaturedDrop = drops[0] ?? null;
+  const heroLines = siteConfig.hero_headline.split("\n");
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={32} className="animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading drops...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="site-shell">
+      {/* Announcement */}
+      <div className="announcement">
+        <Sparkles size={12} aria-hidden="true" />
+        {siteConfig.announcement_text}
+        <ArrowRight size={12} aria-hidden="true" />
+      </div>
+
+      {/* Header */}
+      <header className="site-header">
+        <div className="header-inner">
+          <a href="#top" className="brand-mark" aria-label={`${siteConfig.site_name} home`}>
+            {siteConfig.logo_url ? (
+              <img src={siteConfig.logo_url} alt={siteConfig.site_name} className="h-8 w-auto object-contain" />
+            ) : (
+              <>
+                <span className="brand-symbol"><Zap size={17} fill="currentColor" /></span>
+                <span>{siteConfig.site_name}<span className="text-primary">.</span></span>
+              </>
+            )}
+          </a>
+          <nav className="header-nav" aria-label="Main navigation">
+            <a href="#drops">The drops</a>
+            <a href="#how-it-works">How it works</a>
+          </nav>
+          <div className="header-actions">
+            <Button variant="ghost" size="icon" className="icon-action" aria-label={searchOpen ? "Close search" : "Search drops"} onClick={() => setSearchOpen((o) => !o)}>
+              {searchOpen ? <X size={16} /> : <Search size={16} />}
+            </Button>
+            <Button variant="ghost" size="icon" className="icon-action" aria-label="Notifications" onClick={() => setNotificationsOpen(true)}>
+              <Bell size={16} />
+            </Button>
+          </div>
+        </div>
+        {searchOpen && (
+          <div className="page-container pb-3">
+            <label className="sr-only" htmlFor="drop-search">Search prize drops</label>
+            <Input id="drop-search" autoFocus placeholder="Search prizes, categories..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+        )}
+      </header>
+
+      <main id="top">
+        {/* Hero */}
+        <section className="page-container hero-section" aria-labelledby="hero-heading">
+          <div className="hero-card">
+            <div className="hero-copy">
+              <span className="eyebrow hero-eyebrow"><span className="live-dot" /> THE DROP OF THE WEEK</span>
+              <h1 className="hero-title" id="hero-heading">
+                {heroLines.map((line, i) => (
+                  <span key={i}>
+                    {i > 0 && <br />}
+                    {i === heroLines.length - 1 ? <em>{line}</em> : line}
+                  </span>
+                ))}
+              </h1>
+              <p className="hero-subtitle">{siteConfig.hero_subtitle}</p>
+              {heroFeaturedDrop && (
+                <>
+                  <ClockBlocks seconds={heroFeaturedDrop.time_left - elapsed} label="Closing in" />
+                  <Button className="hero-cta h-11 rounded-full px-5 text-xs font-extrabold" onClick={() => beginDropAction(heroFeaturedDrop)}>
+                    <Ticket size={15} /> Claim giveaway <ChevronRight size={15} />
+                  </Button>
+                  {(siteConfig.hero_entries || siteConfig.hero_prize_value || siteConfig.hero_delivery_fee) && (
+                    <div className="feature-meta">
+                      {siteConfig.hero_entries && <span><strong>{siteConfig.hero_entries}</strong> entries</span>}
+                      {siteConfig.hero_entries && siteConfig.hero_prize_value && <span>·</span>}
+                      {siteConfig.hero_prize_value && <span><strong>{siteConfig.hero_prize_value}</strong> prize value</span>}
+                      {siteConfig.hero_delivery_fee && <><span>·</span><span>Just <strong>{siteConfig.hero_delivery_fee}</strong> delivery</span></>}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="hero-image-wrap">
+              {(siteConfig.hero_image_url || heroFeaturedDrop?.image_url) ? (
+                <img
+                  className="hero-image"
+                  src={siteConfig.hero_image_url || heroFeaturedDrop?.image_url}
+                  alt={heroFeaturedDrop?.image_alt ?? "Featured drop"}
+                />
+              ) : (
+                <div className="hero-image-placeholder" />
+              )}
+              <div className="hero-stamp">ONE OF<br />A KIND<br />*</div>
+              {heroFeaturedDrop && (
+                <div className="hero-image-label"><PackageCheck size={13} /> {heroFeaturedDrop.delivery_time}</div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Drops grid */}
+        <section className="page-container content-layout" id="drops" aria-labelledby="drops-heading">
+          <div>
+            <div className="section-topline">
+              <div>
+                <span className="eyebrow text-primary"><Sparkles size={12} /> HANDPICKED FOR YOU</span>
+                <h2 className="section-title mt-2" id="drops-heading">The good stuff</h2>
+                <p className="section-caption">Good things do not wait. Neither do these.</p>
+              </div>
+              <a className="text-link hidden items-center gap-1 text-[10px] font-bold text-primary sm:flex" href="#drops">See all drops <ArrowRight size={13} /></a>
+            </div>
+            <div className="filter-row" role="group" aria-label="Filter drop type">
+              {categories.map((item) => (
+                <Button key={item} type="button" variant="ghost" className="filter-chip" aria-pressed={category === item} onClick={() => setCategory(item)}>
+                  {item === "Giveaways" ? <Gift size={12} /> : item === "Shop" ? <Wallet size={12} /> : <Menu size={12} />}
+                  {item}
+                  {item === "All drops" ? <span>{drops.length.toString().padStart(2, "0")}</span> : null}
+                </Button>
+              ))}
+            </div>
+            <div className="product-grid">
+              {visibleDrops.map((drop) => (
+                <article className="product-card" key={drop.id}>
+                  <div className={`product-image-frame ${drop.kind === "giveaway" ? "is-sneaker" : ""}`}>
+                    {drop.image_url ? (
+                      <img className="product-image" src={drop.image_url} alt={drop.image_alt} />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-muted">
+                        <Gift size={28} className="text-muted-foreground/40" />
+                      </div>
+                    )}
+                    <span className={`product-badge ${drop.kind === "shop" ? "is-paid" : ""}`}>
+                      {drop.kind === "giveaway" ? <Gift size={10} /> : <Zap size={10} />}
+                      {drop.kind === "giveaway" ? "Free giveaway" : "Available to buy"}
+                    </span>
+                    <Button variant="ghost" size="icon" className="product-save" aria-label={savedDrops.includes(drop.id) ? `Remove ${drop.name} from saved` : `Save ${drop.name}`} onClick={() => toggleSaved(drop.id)}>
+                      <Heart size={14} fill={savedDrops.includes(drop.id) ? "currentColor" : "none"} />
+                    </Button>
+                  </div>
+                  <div className="product-card-body">
+                    <div className="product-category">{drop.category}</div>
+                    <h3 className="product-name">{drop.name}</h3>
+                    <div className="product-value">
+                      {drop.kind === "shop"
+                        ? <><strong>{drop.amount}</strong> <span>· {drop.prize_value}</span></>
+                        : <><strong>{drop.prize_value}</strong> prize value</>}
+                    </div>
+                    <div className="product-timer">
+                      <Clock3 size={13} />
+                      <span>{formatCountdown(drop.time_left - elapsed)}</span>
+                      <span className="product-timer-label">{drop.kind === "shop" ? "OFFER ENDS" : "LEFT TO CLAIM"}</span>
+                    </div>
+                    <div className="product-footer">
+                      <span className="entry-count"><PackageCheck size={12} /> {drop.delivery_fee !== "Free" ? drop.delivery_fee + " delivery" : "Free delivery"} · {drop.delivery_time}</span>
+                      <Button size="sm" className="product-cta rounded-full" onClick={() => beginDropAction(drop)}>
+                        {drop.kind === "giveaway" ? "Claim" : "Shop"} <ArrowRight size={12} />
+                      </Button>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-[8px] text-muted-foreground">
+                      <span><Ticket size={10} className="mr-1 inline" />{drop.entry_label}</span>
+                      <span>{drop.shipping === "Free" ? "Free shipping" : drop.delivery_fee + " delivery"}</span>
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {visibleDrops.length === 0 && (
+                <p className="col-span-full py-12 text-center text-sm text-muted-foreground">
+                  {drops.length === 0 ? "No drops available yet. Check back soon." : "No drops match that search."}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <aside className="sidebar" aria-label="More drops and updates">
+            {drops.length > 0 && (
+              <section className="side-module">
+                <div className="side-heading"><span>On everyone's list</span><span className="text-primary">up</span></div>
+                <div className="side-feature">
+                  {drops[drops.length - 1].image_url ? (
+                    <img className="side-feature-image" src={drops[drops.length - 1].image_url} alt={drops[drops.length - 1].image_alt} />
+                  ) : (
+                    <div className="side-feature-image flex items-center justify-center bg-muted"><Gift size={24} className="text-muted-foreground/40" /></div>
+                  )}
+                  <div className="side-feature-info">
+                    <p className="product-category">MOST-LOVED DROP · {drops[drops.length - 1].category.split("·")[0].trim()}</p>
+                    <h3 className="side-feature-title">{drops[drops.length - 1].name}</h3>
+                    <div className="side-feature-row">
+                      <span>{drops[drops.length - 1].entry_label}</span>
+                      <span className="side-timer">{formatCountdown(drops[drops.length - 1].time_left - elapsed)}</span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <span className="text-[9px] text-muted-foreground">{drops[drops.length - 1].delivery_fee !== "Free" ? drops[drops.length - 1].delivery_fee + " delivery" : "Free delivery"}</span>
+                      <Button size="sm" className="h-7 rounded-full px-3 text-[9px]" onClick={() => beginDropAction(drops[drops.length - 1])}>Take a look <ArrowRight size={11} /></Button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+            {drops.length >= 2 && (
+              <section className="side-module">
+                <div className="side-heading"><span>Almost gone</span><small>Tick-tock <Clock3 size={11} className="ml-1 inline" /></small></div>
+                <div className="featured-list">
+                  {drops.slice(0, 2).map((drop) => (
+                    <button className="featured-row w-full border-0 bg-transparent p-0 text-left" type="button" key={drop.id} onClick={() => beginDropAction(drop)}>
+                      {drop.image_url ? (
+                        <img className="featured-thumb" src={drop.image_url} alt="" />
+                      ) : (
+                        <div className="featured-thumb flex items-center justify-center bg-muted rounded"><Gift size={14} className="text-muted-foreground/40" /></div>
+                      )}
+                      <span>
+                        <span className="featured-name block">{drop.name}</span>
+                        <span className="featured-sub">{drop.kind === "shop" ? `${drop.amount} · ${drop.entry_label}` : `${drop.entry_label} · ${drop.delivery_fee} delivery`}</span>
+                      </span>
+                      <span className="featured-time">{formatCountdown(drop.time_left - elapsed).split(" ").slice(0, 2).join(" ")}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </aside>
+        </section>
+
+        {/* How it works */}
+        <section className="how-band" id="how-it-works">
+          <div className="page-container how-inner">
+            <div className="how-step"><span className="how-number">01</span><span><strong>Find your next favourite</strong><span>Thoughtful drops, fresh every week.</span></span></div>
+            <div className="how-step"><span className="how-number">02</span><span><strong>Claim or make it yours</strong><span>Giveaways to claim, goodies to shop.</span></span></div>
+            <div className="how-step"><span className="how-number">03</span><span><strong>We will keep you in the loop</strong><span>Every winner gets a little happy dance.</span></span></div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="page-container site-footer">
+        <span>{siteConfig.footer_text}</span>
+        <span className="flex items-center gap-3">
+          <span><ShieldCheck size={11} className="mr-1 inline" />Thoughtfully picked</span>
+          <a className="text-link" href="#top">Back to top</a>
+        </span>
+      </footer>
+
+      {/* ── Claim Giveaway Dialog ──────────────────────────────── */}
+      <Dialog open={claimOpen} onOpenChange={(open) => { setClaimOpen(open); if (!open) { setClaimDone(false); resetForm(); } }}>
+        <DialogContent className="max-h-[90dvh] gap-5 overflow-y-auto rounded-md p-5 sm:max-w-[460px] sm:p-6">
+          {claimDone ? (
+            /* ── Success: show payment info ── */
+            <div className="grid gap-4">
+              <div className="grid justify-items-center gap-2 text-center">
+                <CheckCircle2 size={44} className="text-primary" />
+                <DialogTitle className="font-serif text-2xl">Giveaway claimed!</DialogTitle>
+                <DialogDescription className="modal-copy">
+                  Your claim for <strong>{selectedDrop?.name}</strong> is confirmed. To complete, pay the delivery fee to the wallet below.
+                </DialogDescription>
+              </div>
+
+              {/* Delivery fee summary */}
+              <div className="rounded-md border border-border bg-muted p-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground text-xs">Delivery fee</span>
+                  <strong>{selectedDrop?.delivery_fee}</strong>
+                </div>
+              </div>
+
+              {/* Crypto selector */}
+              {walletConfig.accepted_coins.length > 0 && (
+                <div className="checkout-field">
+                  <span className="checkout-label">Pay delivery fee with</span>
+                  <div className="crypto-options" role="group">
+                    {walletConfig.accepted_coins.map((coin) => (
+                      <Button key={coin} type="button" variant="ghost" className="crypto-option" aria-pressed={crypto === coin} onClick={() => setCrypto(coin)}>
+                        <span className="font-black">{coin[0]}</span>{coin}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Wallet address + QR */}
+              {walletAddress && (
+                <div className="grid gap-3">
+                  <div className="rounded-md border border-border bg-muted p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[9px] font-bold uppercase text-muted-foreground">{crypto} Wallet Address</p>
+                      <CopyButton text={walletAddress} />
+                    </div>
+                    <p className="font-mono text-xs break-all">{walletAddress}</p>
+                  </div>
+                  <div className="flex justify-center">
+                    <QrCode value={walletAddress} size={160} />
+                  </div>
+                  <p className="text-center text-[10px] text-muted-foreground">Scan the QR code or copy the address above</p>
+                </div>
+              )}
+
+              <Button className="h-10 rounded-full font-bold" onClick={() => { setClaimOpen(false); setClaimDone(false); }}>
+                Done <Check size={14} />
+              </Button>
+            </div>
+          ) : (
+            /* ── Claim form ── */
+            <>
+              <DialogTitle className="font-serif text-2xl">Claim your giveaway.</DialogTitle>
+              <DialogDescription className="modal-copy">
+                Fill in your details to claim <strong>{selectedDrop?.name}</strong>. You will pay the delivery fee after.
+              </DialogDescription>
+
+              {selectedDrop && (
+                <div className="checkout-summary">
+                  {selectedDrop.image_url ? (
+                    <img className="checkout-thumb" src={selectedDrop.image_url} alt="" />
+                  ) : (
+                    <div className="checkout-thumb flex items-center justify-center bg-muted rounded"><Gift size={20} className="text-muted-foreground/40" /></div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <strong className="block text-sm">{selectedDrop.name}</strong>
+                    <span className="mt-1 block text-[10px] text-muted-foreground">{selectedDrop.prize_value} prize value</span>
+                  </div>
+                  <Gift size={18} className="text-primary" />
+                </div>
+              )}
+
+              <div className="checkout-field">
+                <label className="checkout-label" htmlFor="claim-email">Email address</label>
+                <Input className="checkout-input" id="claim-email" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </div>
+              <div className="checkout-field">
+                <label className="checkout-label" htmlFor="claim-name">Full name</label>
+                <Input className="checkout-input" id="claim-name" placeholder="Your full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+              </div>
+              <div className="checkout-field">
+                <label className="checkout-label" htmlFor="claim-address">Shipping address</label>
+                <Input className="checkout-input" id="claim-address" placeholder="Street, city, postcode, country" value={address} onChange={(e) => setAddress(e.target.value)} />
+              </div>
+
+              {selectedDrop && (
+                <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-xs">
+                  <span className="text-muted-foreground">Delivery fee (paid after)</span>
+                  <strong>{selectedDrop.delivery_fee}</strong>
+                </div>
+              )}
+
+              <div className="flex items-start gap-2 text-[10px] text-muted-foreground">
+                <Info size={13} className="mt-0.5 shrink-0" />
+                <span>After submitting, you will receive the crypto wallet address and QR code to pay your delivery fee.</span>
+              </div>
+
+              <Button
+                className="h-11 w-full rounded-full font-bold"
+                disabled={!email.includes("@") || !fullName.trim() || !address.trim() || submitting}
+                onClick={submitClaim}
+              >
+                {submitting ? <Loader2 size={16} className="animate-spin" /> : <Gift size={16} />}
+                {submitting ? "Saving..." : "Claim giveaway"}
+                {!submitting && <ArrowRight size={15} />}
+              </Button>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Shop Checkout Dialog ───────────────────────────────── */}
+      <Dialog open={checkoutOpen} onOpenChange={(open) => { setCheckoutOpen(open); if (!open) { setCheckoutDone(false); resetForm(); } }}>
+        <DialogContent className="max-h-[90dvh] gap-5 overflow-y-auto rounded-md p-5 sm:max-w-[460px] sm:p-6">
+          {checkoutDone ? (
+            <div className="grid gap-4">
+              <div className="grid justify-items-center gap-2 text-center">
+                <CheckCircle2 size={44} className="text-primary" />
+                <DialogTitle className="font-serif text-2xl">Order received!</DialogTitle>
+                <DialogDescription className="modal-copy">
+                  Your order for <strong>{selectedDrop?.name}</strong> is confirmed. Send payment to the wallet below.
+                </DialogDescription>
+              </div>
+
+              <div className="rounded-md border border-border bg-muted p-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground text-xs">Amount</span>
+                  <strong>{selectedDrop?.amount}</strong>
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-muted-foreground text-xs">Delivery</span>
+                  <strong>{selectedDrop?.delivery_fee}</strong>
+                </div>
+              </div>
+
+              {walletAddress && (
+                <div className="grid gap-3">
+                  <div className="rounded-md border border-border bg-muted p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[9px] font-bold uppercase text-muted-foreground">{crypto} Wallet Address</p>
+                      <CopyButton text={walletAddress} />
+                    </div>
+                    <p className="font-mono text-xs break-all">{walletAddress}</p>
+                  </div>
+                  <div className="flex justify-center">
+                    <QrCode value={walletAddress} size={160} />
+                  </div>
+                  <p className="text-center text-[10px] text-muted-foreground">Scan the QR code or copy the address above</p>
+                </div>
+              )}
+
+              <Button className="h-10 rounded-full font-bold" onClick={() => { setCheckoutOpen(false); setCheckoutDone(false); }}>
+                Done <Check size={14} />
+              </Button>
+            </div>
+          ) : (
+            <>
+              <DialogTitle className="font-serif text-2xl">Make it yours.</DialogTitle>
+              <DialogDescription className="modal-copy">Complete your details and pay with crypto.</DialogDescription>
+
+              {selectedDrop && (
+                <div className="checkout-summary">
+                  {selectedDrop.image_url ? (
+                    <img className="checkout-thumb" src={selectedDrop.image_url} alt="" />
+                  ) : (
+                    <div className="checkout-thumb flex items-center justify-center bg-muted rounded"><Zap size={20} className="text-muted-foreground/40" /></div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <strong className="block text-sm">{selectedDrop.name}</strong>
+                    <span className="mt-1 block text-[10px] text-muted-foreground">{selectedDrop.delivery_time}</span>
+                  </div>
+                  <strong className="text-sm">{selectedDrop.amount}</strong>
+                </div>
+              )}
+
+              <div className="checkout-field">
+                <label className="checkout-label" htmlFor="shop-email">Email for receipt</label>
+                <Input className="checkout-input" id="shop-email" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </div>
+              <div className="checkout-field">
+                <label className="checkout-label" htmlFor="shop-name">Full name</label>
+                <Input className="checkout-input" id="shop-name" placeholder="Your full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+              </div>
+              <div className="checkout-field">
+                <label className="checkout-label" htmlFor="shop-address">Shipping address</label>
+                <Input className="checkout-input" id="shop-address" placeholder="Street, city, postcode, country" value={address} onChange={(e) => setAddress(e.target.value)} />
+              </div>
+
+              <div className="checkout-field">
+                <span className="checkout-label">Pay with crypto</span>
+                <div className="crypto-options" role="group">
+                  {walletConfig.accepted_coins.map((coin) => (
+                    <Button key={coin} type="button" variant="ghost" className="crypto-option" aria-pressed={crypto === coin} onClick={() => setCrypto(coin)}>
+                      <span className="font-black">{coin[0]}</span>{coin}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {walletAddress && (
+                <div className="rounded-md border border-border bg-muted p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">{crypto} Wallet Address</p>
+                    <CopyButton text={walletAddress} />
+                  </div>
+                  <p className="font-mono text-xs break-all">{walletAddress}</p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between border-t border-border pt-3 text-xs">
+                <span className="text-muted-foreground">Delivery</span>
+                <strong>{selectedDrop?.delivery_fee}</strong>
+              </div>
+
+              <div className="crypto-note">
+                <Info size={14} className="mt-0.5 shrink-0" />
+                <span>Send payment to the wallet address above. Your order is confirmed manually after payment clears.</span>
+              </div>
+
+              <Button
+                className="h-11 w-full rounded-full font-bold"
+                disabled={!email.includes("@") || !fullName.trim() || !address.trim() || !walletAddress || submitting}
+                onClick={submitCheckout}
+              >
+                {submitting ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />}
+                {submitting ? "Saving..." : `Confirm order with ${crypto}`}
+                {!submitting && <ArrowRight size={15} />}
+              </Button>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Notifications ──────────────────────────────────────── */}
+      <Dialog open={notificationsOpen} onOpenChange={setNotificationsOpen}>
+        <DialogContent className="gap-5 rounded-md p-5 sm:max-w-[380px] sm:p-6">
+          <DialogTitle className="font-serif text-2xl">Little updates.</DialogTitle>
+          <DialogDescription className="modal-copy">The good news and the almost-gone news.</DialogDescription>
+          <div className="grid gap-3">
+            {drops.slice(0, 2).map((drop) => (
+              <div key={drop.id} className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+                <span className="toast-icon"><Sparkles size={14} /></span>
+                <p className="m-0 text-[11px] leading-relaxed">
+                  <strong className="mb-1 block">{drop.name}</strong>
+                  {drop.kind === "giveaway" ? `${drop.entry_label} · ${drop.delivery_fee} delivery` : `${drop.amount} · ${drop.entry_label}`}
+                </p>
+              </div>
+            ))}
+            {drops.length === 0 && <p className="text-xs text-muted-foreground">No drops yet.</p>}
+          </div>
+          <Button variant="outline" className="w-full rounded-full" onClick={() => setNotificationsOpen(false)}>Lovely, thanks <Check size={14} /></Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Toast stack ────────────────────────────────────────── */}
+      <div className="toast-stack" aria-live="polite" aria-atomic="false">
+        {toasts.map((toast) => (
+          <div className="toast-card" key={toast.id}>
+            <span className="toast-icon"><CheckCircle2 size={15} /></span>
+            <span className="toast-copy"><strong>{toast.title}</strong>{toast.message}</span>
+            <Button variant="ghost" size="icon" className="toast-close" aria-label="Dismiss" onClick={() => setToasts((items) => items.filter((i) => i.id !== toast.id))}><X size={13} /></Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
