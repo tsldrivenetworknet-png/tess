@@ -17,18 +17,18 @@ export type ExtendedSiteContent = {
 };
 
 export const DEFAULT_SITE_CONTENT: ExtendedSiteContent = {
-  topCountdownBadge: "FLASH DROP CLOSING",
-  topCountdownText: "Scarlet High Tops · Claim window closing soon!",
-  sectionEyebrow: "HANDPICKED FOR YOU",
-  sectionTitle: "The good stuff",
-  sectionCaption: "Good things do not wait. Neither do these.",
+  topCountdownBadge: "EXCLUSIVE TESLA DROP CLOSING",
+  topCountdownText: "Tesla Cybertruck (Cyberbeast) · Claim window closing soon!",
+  sectionEyebrow: "OFFICIAL TESLA ALLOCATIONS",
+  sectionTitle: "The Tesla Fleet",
+  sectionCaption: "Exclusive promotional drops, giveaways, and immediate delivery allocations.",
   demoNotificationsEnabled: true,
   demoNotifications: [
-    { id: "1", name: "Sarah M.", location: "London, UK", dropName: "Scarlet High Tops", timeAgo: "Just now" },
-    { id: "2", name: "David K.", location: "New York, USA", dropName: "Tesla Cyberbackpack", timeAgo: "1m ago" },
-    { id: "3", name: "Elena R.", location: "Berlin, DE", dropName: "Scarlet High Tops", timeAgo: "2m ago" },
-    { id: "4", name: "Liam P.", location: "Toronto, CA", dropName: "Wireless Earbuds Pro", timeAgo: "3m ago" },
-    { id: "5", name: "Marcus T.", location: "Sydney, AU", dropName: "Scarlet High Tops", timeAgo: "4m ago" },
+    { id: "1", name: "Sarah M.", location: "London, UK", dropName: "Tesla Cybertruck Cyberbeast", timeAgo: "Just now" },
+    { id: "2", name: "Michael B.", location: "Austin, TX", dropName: "Tesla Roadster 2.0 Gold", timeAgo: "1m ago" },
+    { id: "3", name: "David K.", location: "Miami, FL", dropName: "Tesla Model X Plaid", timeAgo: "2m ago" },
+    { id: "4", name: "Liam P.", location: "Toronto, CA", dropName: "Tesla Cyber Roadster SpaceX", timeAgo: "3m ago" },
+    { id: "5", name: "Elena R.", location: "Berlin, DE", dropName: "Tesla Model S Plaid", timeAgo: "4m ago" },
   ],
 };
 

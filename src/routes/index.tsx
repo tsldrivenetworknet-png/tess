@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState, useCallback } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import {
   ArrowRight,
   Bell,
@@ -26,8 +26,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { QrCode } from "@/components/QrCode";
-import { COUNTRIES } from "@/lib/countries";
 import {
   getExtendedContent,
   type ExtendedSiteContent,
@@ -37,8 +35,6 @@ import {
   fetchDrops,
   fetchSiteConfig,
   fetchWalletConfig,
-  fetchWalletQrUrls,
-  createOrder,
   type DbDrop,
   type DbSiteConfig,
   type DbWalletConfig,
@@ -133,40 +129,23 @@ function ClockBlocks({ seconds, label }: { seconds: number; label?: string }) {
   );
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
-      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
-}
-
 function Index() {
   // ── Data from Supabase ───────────────────────────────────────
   const [drops, setDrops] = useState<DbDrop[]>([]);
   const [siteConfig, setSiteConfig] = useState<DbSiteConfig>(DEFAULT_SITE);
   const [walletConfig, setWalletConfig] = useState<DbWalletConfig>(DEFAULT_WALLET);
-  const [qrUrls, setQrUrls] = useState<{ primaryQr: string; secondaryQr: string }>({ primaryQr: "", secondaryQr: "" });
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     try {
-      const [dropsData, siteData, walletData, qrData] = await Promise.all([
+      const [dropsData, siteData, walletData] = await Promise.all([
         fetchDrops(),
         fetchSiteConfig(),
         fetchWalletConfig(),
-        fetchWalletQrUrls(),
       ]);
       setDrops(dropsData);
       setSiteConfig(siteData);
       setWalletConfig(walletData);
-      setQrUrls(qrData);
     } catch (err) {
       console.error("Failed to load data", err);
     } finally {
@@ -187,26 +166,11 @@ function Index() {
   const [elapsed, setElapsed] = useState(0);
   const [shippingSeconds, setShippingSeconds] = useState(86400 + 14400 + 1800); // Live ~28h shipping window
   const [category, setCategory] = useState<DropCategory>("All drops");
-  const [selectedDrop, setSelectedDrop] = useState<DbDrop | null>(null);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [claimOpen, setClaimOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [crypto, setCrypto] = useState("");
-  const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [street, setStreet] = useState("");
-  const [apartment, setApartment] = useState("");
-  const [city, setCity] = useState("");
-  const [stateProvince, setStateProvince] = useState("");
-  const [postalCode, setPostalCode] = useState("");
-  const [country, setCountry] = useState("United States");
   const [savedDrops, setSavedDrops] = useState<string[]>([]);
   const [toasts, setToasts] = useState<{ id: number; title: string; message: string }[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [claimDone, setClaimDone] = useState(false);
-  const [checkoutDone, setCheckoutDone] = useState(false);
   const [extContent, setExtContent] = useState<ExtendedSiteContent>(() => getExtendedContent());
   const [currentAlert, setCurrentAlert] = useState<DemoNotification | null>(null);
 
@@ -309,138 +273,13 @@ function Index() {
     window.setTimeout(() => setToasts((items) => items.filter((t) => t.id !== id)), 4800);
   };
 
-  const resetForm = () => {
-    setEmail("");
-    setFullName("");
-    setStreet("");
-    setApartment("");
-    setCity("");
-    setStateProvince("");
-    setPostalCode("");
-    setCountry("United States");
-  };
-
-  const isAddressValid = Boolean(
-    street.trim() &&
-    city.trim() &&
-    stateProvince.trim() &&
-    postalCode.trim() &&
-    country.trim()
-  );
-
-  const getFormattedAddress = () => {
-    return [
-      street.trim(),
-      apartment.trim() ? `Apt ${apartment.trim()}` : "",
-      city.trim(),
-      `${stateProvince.trim()} ${postalCode.trim()}`.trim(),
-      country.trim(),
-    ].filter(Boolean).join(", ");
-  };
-
-  const getAddressNotes = () => {
-    return `Street: ${street.trim()} | Apt: ${apartment.trim()} | City: ${city.trim()} | State: ${stateProvince.trim()} | PostalCode: ${postalCode.trim()} | Country: ${country.trim()}`;
-  };
-
-  const openClaim = (drop: DbDrop) => {
-    setSelectedDrop(drop);
-    setClaimDone(false);
-    resetForm();
-    setCrypto(walletConfig.accepted_coins[0] ?? walletConfig.primary_coin ?? "ETH");
-    setClaimOpen(true);
-  };
-
-  const openCheckout = (drop: DbDrop) => {
-    setSelectedDrop(drop);
-    setCheckoutDone(false);
-    resetForm();
-    setCrypto(walletConfig.accepted_coins[0] ?? walletConfig.primary_coin ?? "ETH");
-    setCheckoutOpen(true);
-  };
+  const navigate = useNavigate();
 
   const beginDropAction = (drop: DbDrop) => {
-    if (drop.kind === "giveaway") openClaim(drop);
-    else openCheckout(drop);
-  };
-
-  // Robust wallet address calculation (never empty, falls back gracefully)
-  const selectedWalletAddress = useMemo(() => {
-    let addr = "";
-    if (crypto === walletConfig.secondary_coin && walletConfig.secondary_address?.trim()) {
-      addr = walletConfig.secondary_address.trim();
-    } else if (walletConfig.primary_address?.trim()) {
-      addr = walletConfig.primary_address.trim();
-    } else if (walletConfig.secondary_address?.trim()) {
-      addr = walletConfig.secondary_address.trim();
-    } else {
-      addr = crypto === "BTC"
-        ? "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
-        : "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
-    }
-    return addr;
-  }, [crypto, walletConfig]);
-
-  // Active QR code image uploaded from Admin (if available)
-  const activeQrUrl = useMemo(() => {
-    if (crypto === walletConfig.secondary_coin && qrUrls.secondaryQr) {
-      return qrUrls.secondaryQr;
-    }
-    if (qrUrls.primaryQr) {
-      return qrUrls.primaryQr;
-    }
-    return "";
-  }, [crypto, walletConfig, qrUrls]);
-
-  // Submit giveaway claim: always moves to payment screen to display wallet address & QR
-  const submitClaim = async () => {
-    if (!selectedDrop) return;
-    setSubmitting(true);
-    try {
-      await createOrder({
-        drop_id: selectedDrop.id,
-        drop_name: selectedDrop.name,
-        kind: "giveaway",
-        email,
-        full_name: fullName,
-        address: getFormattedAddress(),
-        status: "entered",
-        crypto: crypto || walletConfig.accepted_coins[0] || "ETH",
-        amount: "",
-        delivery_fee: selectedDrop.delivery_fee,
-        notes: getAddressNotes(),
-      });
-    } catch (err) {
-      console.warn("Order submission note:", err);
-    } finally {
-      setClaimDone(true);
-      setSubmitting(false);
-    }
-  };
-
-  // Submit shop order
-  const submitCheckout = async () => {
-    if (!selectedDrop) return;
-    setSubmitting(true);
-    try {
-      await createOrder({
-        drop_id: selectedDrop.id,
-        drop_name: selectedDrop.name,
-        kind: "shop",
-        email,
-        full_name: fullName,
-        address: getFormattedAddress(),
-        status: "entered",
-        crypto: crypto || walletConfig.accepted_coins[0] || "ETH",
-        amount: selectedDrop.amount,
-        delivery_fee: selectedDrop.delivery_fee,
-        notes: getAddressNotes(),
-      });
-    } catch (err) {
-      console.warn("Order submission note:", err);
-    } finally {
-      setCheckoutDone(true);
-      setSubmitting(false);
-    }
+    navigate({
+      to: "/checkout",
+      search: { dropId: drop.id, action: drop.kind },
+    });
   };
 
   const toggleSaved = (id: string) => {
@@ -781,360 +620,6 @@ function Index() {
           <a className="text-link" href="#top">Back to top</a>
         </span>
       </footer>
-
-      {/* ── Claim Giveaway Dialog ──────────────────────────────── */}
-      <Dialog open={claimOpen} onOpenChange={(open) => { setClaimOpen(open); if (!open) { setClaimDone(false); resetForm(); } }}>
-        <DialogContent className="max-h-[90dvh] gap-5 overflow-y-auto rounded-md p-5 sm:max-w-[460px] sm:p-6">
-          {claimDone ? (
-            /* ── Success: show payment info ── */
-            <div className="grid gap-4">
-              <div className="grid justify-items-center gap-2 text-center">
-                <CheckCircle2 size={44} className="text-primary" />
-                <DialogTitle className="font-serif text-2xl">Giveaway claimed!</DialogTitle>
-                <DialogDescription className="modal-copy">
-                  Your claim for <strong>{selectedDrop?.name}</strong> is confirmed. To complete, pay the delivery fee to the wallet below.
-                </DialogDescription>
-              </div>
-
-              {/* Delivery fee summary */}
-              <div className="rounded-md border border-border bg-muted p-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground text-xs">Delivery fee</span>
-                  <strong>{selectedDrop?.delivery_fee}</strong>
-                </div>
-              </div>
-
-              {/* Crypto selector */}
-              <div className="checkout-field">
-                <span className="checkout-label">Pay delivery fee with</span>
-                <div className="crypto-options" role="group">
-                  {(walletConfig.accepted_coins.length > 0 ? walletConfig.accepted_coins : ["ETH", "BTC", "USDC"]).map((coin) => (
-                    <Button key={coin} type="button" variant="ghost" className="crypto-option" aria-pressed={crypto === coin} onClick={() => setCrypto(coin)}>
-                      <span className="font-black">{coin[0]}</span>{coin}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Wallet address + QR */}
-              <div className="grid gap-3">
-                <div className="rounded-md border border-border bg-muted p-3.5 shadow-sm">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{crypto || "ETH"} Wallet Address</p>
-                    <CopyButton text={selectedWalletAddress} />
-                  </div>
-                  <p className="font-mono text-xs break-all font-semibold select-all text-foreground bg-background/60 p-2 rounded border border-border/50">{selectedWalletAddress}</p>
-                </div>
-
-                <div className="flex flex-col items-center justify-center p-4 rounded-md border border-border bg-white dark:bg-card">
-                  {activeQrUrl ? (
-                    <img
-                      src={activeQrUrl}
-                      alt={`${crypto} payment QR code`}
-                      className="w-44 h-44 object-contain rounded shadow-sm"
-                    />
-                  ) : (
-                    <QrCode value={selectedWalletAddress} size={170} />
-                  )}
-                  <p className="mt-2 text-center text-[10px] text-muted-foreground font-medium">
-                    {activeQrUrl ? "Scan official QR code or copy the address above" : "Scan QR code or copy the address above"}
-                  </p>
-                </div>
-              </div>
-
-              <Button className="h-10 rounded-full font-bold" onClick={() => { setClaimOpen(false); setClaimDone(false); }}>
-                Done <Check size={14} />
-              </Button>
-            </div>
-          ) : (
-            /* ── Claim form ── */
-            <>
-              <DialogTitle className="font-serif text-2xl">Claim your giveaway.</DialogTitle>
-              <DialogDescription className="modal-copy">
-                Fill in your details to claim <strong>{selectedDrop?.name}</strong>. You will pay the delivery fee after.
-              </DialogDescription>
-
-              {/* Reassurance Guaranteed Banner */}
-              <div className="guaranteed-box">
-                <CheckCircle2 size={20} className="shrink-0 text-emerald-600 mt-0.5" />
-                <div className="text-xs leading-relaxed">
-                  <strong className="block text-emerald-950 font-bold">100% Guaranteed Allocation — You Will Get This Item!</strong>
-                  <span>Your entry qualifies and reserves this item directly for you. Complete your shipping address below to secure dispatch to your doorstep.</span>
-                </div>
-              </div>
-
-              {/* Live Shipping Day Countdown */}
-              <div className="shipping-timer-box">
-                <div className="flex items-center gap-2.5">
-                  <Clock3 size={16} className="text-primary shrink-0" />
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Estimated Dispatch</span>
-                    <span className="text-xs font-bold text-foreground">Dispatches in {formatShippingCountdown(shippingSeconds)}</span>
-                  </div>
-                </div>
-                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-extrabold text-primary">Tracked & Insured</span>
-              </div>
-
-              {selectedDrop && (
-                <div className="checkout-summary">
-                  {selectedDrop.image_url ? (
-                    <img className="checkout-thumb" src={selectedDrop.image_url} alt="" />
-                  ) : (
-                    <div className="checkout-thumb flex items-center justify-center bg-muted rounded"><Gift size={20} className="text-muted-foreground/40" /></div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <strong className="block text-sm">{selectedDrop.name}</strong>
-                    <span className="mt-1 block text-[10px] text-muted-foreground">{selectedDrop.prize_value} prize value</span>
-                  </div>
-                  <Gift size={18} className="text-primary" />
-                </div>
-              )}
-
-              <div className="checkout-field">
-                <label className="checkout-label" htmlFor="claim-email">Email address</label>
-                <Input className="checkout-input" id="claim-email" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-              <div className="checkout-field">
-                <label className="checkout-label" htmlFor="claim-name">Full name</label>
-                <Input className="checkout-input" id="claim-name" placeholder="Your full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-              </div>
-
-              {/* Structured Shipping Address */}
-              <div className="grid gap-2.5 pt-1">
-                <span className="text-[11px] font-extrabold uppercase tracking-wide text-foreground">Shipping address</span>
-
-                <div className="checkout-field">
-                  <label className="checkout-label" htmlFor="claim-street">Street address</label>
-                  <Input className="checkout-input" id="claim-street" placeholder="House number and street name" value={street} onChange={(e) => setStreet(e.target.value)} />
-                </div>
-
-                <div className="checkout-field">
-                  <label className="checkout-label" htmlFor="claim-apt">Apartment, suite, unit (optional)</label>
-                  <Input className="checkout-input" id="claim-apt" placeholder="Apt, Suite, Unit, Building (optional)" value={apartment} onChange={(e) => setApartment(e.target.value)} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="checkout-field">
-                    <label className="checkout-label" htmlFor="claim-city">City</label>
-                    <Input className="checkout-input" id="claim-city" placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
-                  </div>
-                  <div className="checkout-field">
-                    <label className="checkout-label" htmlFor="claim-state">State / Province / Region</label>
-                    <Input className="checkout-input" id="claim-state" placeholder="State or Region" value={stateProvince} onChange={(e) => setStateProvince(e.target.value)} />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="checkout-field">
-                    <label className="checkout-label" htmlFor="claim-postcode">Postal / ZIP code</label>
-                    <Input className="checkout-input" id="claim-postcode" placeholder="Postal / ZIP" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} />
-                  </div>
-                  <div className="checkout-field">
-                    <label className="checkout-label" htmlFor="claim-country">Country</label>
-                    <select className="checkout-select" id="claim-country" value={country} onChange={(e) => setCountry(e.target.value)}>
-                      {COUNTRIES.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {selectedDrop && (
-                <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-xs">
-                  <div>
-                    <span className="font-semibold text-foreground">Delivery fee (paid after)</span>
-                    <span className="block text-[10px] text-muted-foreground">Settled with crypto after submitting details</span>
-                  </div>
-                  <strong className="text-sm">{selectedDrop.delivery_fee}</strong>
-                </div>
-              )}
-
-              <div className="flex items-start gap-2 text-[10px] text-muted-foreground">
-                <Info size={13} className="mt-0.5 shrink-0" />
-                <span>After submitting, you will receive the crypto wallet address and QR code to pay your delivery fee.</span>
-              </div>
-
-              <Button
-                className="h-11 w-full rounded-full font-bold"
-                disabled={!email.includes("@") || !fullName.trim() || !isAddressValid || submitting}
-                onClick={submitClaim}
-              >
-                {submitting ? <Loader2 size={16} className="animate-spin" /> : <Gift size={16} />}
-                {submitting ? "Reserving your drop..." : "Claim giveaway"}
-                {!submitting && <ArrowRight size={15} />}
-              </Button>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Shop Checkout Dialog ───────────────────────────────── */}
-      <Dialog open={checkoutOpen} onOpenChange={(open) => { setCheckoutOpen(open); if (!open) { setCheckoutDone(false); resetForm(); } }}>
-        <DialogContent className="max-h-[90dvh] gap-5 overflow-y-auto rounded-md p-5 sm:max-w-[460px] sm:p-6">
-          {checkoutDone ? (
-            <div className="grid gap-4">
-              <div className="grid justify-items-center gap-2 text-center">
-                <CheckCircle2 size={44} className="text-primary" />
-                <DialogTitle className="font-serif text-2xl">Order received!</DialogTitle>
-                <DialogDescription className="modal-copy">
-                  Your order for <strong>{selectedDrop?.name}</strong> is confirmed. Send payment to the wallet below.
-                </DialogDescription>
-              </div>
-
-              <div className="rounded-md border border-border bg-muted p-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground text-xs">Amount</span>
-                  <strong>{selectedDrop?.amount}</strong>
-                </div>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="text-muted-foreground text-xs">Delivery</span>
-                  <strong>{selectedDrop?.delivery_fee}</strong>
-                </div>
-              </div>
-
-              {/* Wallet address + QR */}
-              <div className="grid gap-3">
-                <div className="rounded-md border border-border bg-muted p-3.5 shadow-sm">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{crypto || "ETH"} Wallet Address</p>
-                    <CopyButton text={selectedWalletAddress} />
-                  </div>
-                  <p className="font-mono text-xs break-all font-semibold select-all text-foreground bg-background/60 p-2 rounded border border-border/50">{selectedWalletAddress}</p>
-                </div>
-
-                <div className="flex flex-col items-center justify-center p-4 rounded-md border border-border bg-white dark:bg-card">
-                  {activeQrUrl ? (
-                    <img
-                      src={activeQrUrl}
-                      alt={`${crypto} payment QR code`}
-                      className="w-44 h-44 object-contain rounded shadow-sm"
-                    />
-                  ) : (
-                    <QrCode value={selectedWalletAddress} size={170} />
-                  )}
-                  <p className="mt-2 text-center text-[10px] text-muted-foreground font-medium">
-                    {activeQrUrl ? "Scan official QR code or copy the address above" : "Scan QR code or copy the address above"}
-                  </p>
-                </div>
-              </div>
-
-              <Button className="h-10 rounded-full font-bold" onClick={() => { setCheckoutOpen(false); setCheckoutDone(false); }}>
-                Done <Check size={14} />
-              </Button>
-            </div>
-          ) : (
-            <>
-              <DialogTitle className="font-serif text-2xl">Make it yours.</DialogTitle>
-              <DialogDescription className="modal-copy">Complete your details and pay with crypto.</DialogDescription>
-
-              {selectedDrop && (
-                <div className="checkout-summary">
-                  {selectedDrop.image_url ? (
-                    <img className="checkout-thumb" src={selectedDrop.image_url} alt="" />
-                  ) : (
-                    <div className="checkout-thumb flex items-center justify-center bg-muted rounded"><Zap size={20} className="text-muted-foreground/40" /></div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <strong className="block text-sm">{selectedDrop.name}</strong>
-                    <span className="mt-1 block text-[10px] text-muted-foreground">{selectedDrop.delivery_time}</span>
-                  </div>
-                  <strong className="text-sm">{selectedDrop.amount}</strong>
-                </div>
-              )}
-
-              <div className="checkout-field">
-                <label className="checkout-label" htmlFor="shop-email">Email for receipt</label>
-                <Input className="checkout-input" id="shop-email" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-              <div className="checkout-field">
-                <label className="checkout-label" htmlFor="shop-name">Full name</label>
-                <Input className="checkout-input" id="shop-name" placeholder="Your full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-              </div>
-
-              {/* Structured Shipping Address */}
-              <div className="grid gap-2.5 pt-1">
-                <span className="text-[11px] font-extrabold uppercase tracking-wide text-foreground">Shipping address</span>
-
-                <div className="checkout-field">
-                  <label className="checkout-label" htmlFor="shop-street">Street address</label>
-                  <Input className="checkout-input" id="shop-street" placeholder="House number and street name" value={street} onChange={(e) => setStreet(e.target.value)} />
-                </div>
-
-                <div className="checkout-field">
-                  <label className="checkout-label" htmlFor="shop-apt">Apartment, suite, unit (optional)</label>
-                  <Input className="checkout-input" id="shop-apt" placeholder="Apt, Suite, Unit, Building (optional)" value={apartment} onChange={(e) => setApartment(e.target.value)} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="checkout-field">
-                    <label className="checkout-label" htmlFor="shop-city">City</label>
-                    <Input className="checkout-input" id="shop-city" placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
-                  </div>
-                  <div className="checkout-field">
-                    <label className="checkout-label" htmlFor="shop-state">State / Province / Region</label>
-                    <Input className="checkout-input" id="shop-state" placeholder="State or Region" value={stateProvince} onChange={(e) => setStateProvince(e.target.value)} />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="checkout-field">
-                    <label className="checkout-label" htmlFor="shop-postcode">Postal / ZIP code</label>
-                    <Input className="checkout-input" id="shop-postcode" placeholder="Postal / ZIP" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} />
-                  </div>
-                  <div className="checkout-field">
-                    <label className="checkout-label" htmlFor="shop-country">Country</label>
-                    <select className="checkout-select" id="shop-country" value={country} onChange={(e) => setCountry(e.target.value)}>
-                      {COUNTRIES.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="checkout-field">
-                <span className="checkout-label">Pay with crypto</span>
-                <div className="crypto-options" role="group">
-                  {walletConfig.accepted_coins.map((coin) => (
-                    <Button key={coin} type="button" variant="ghost" className="crypto-option" aria-pressed={crypto === coin} onClick={() => setCrypto(coin)}>
-                      <span className="font-black">{coin[0]}</span>{coin}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-md border border-border bg-muted p-3.5 shadow-sm">
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{crypto || "ETH"} Wallet Address</p>
-                  <CopyButton text={selectedWalletAddress} />
-                </div>
-                <p className="font-mono text-xs break-all font-semibold select-all text-foreground bg-background/60 p-2 rounded border border-border/50">{selectedWalletAddress}</p>
-              </div>
-
-              <div className="flex items-center justify-between border-t border-border pt-3 text-xs">
-                <span className="text-muted-foreground">Delivery</span>
-                <strong>{selectedDrop?.delivery_fee}</strong>
-              </div>
-
-              <div className="crypto-note">
-                <Info size={14} className="mt-0.5 shrink-0" />
-                <span>Send payment to the wallet address above. Your order is confirmed manually after payment clears.</span>
-              </div>
-
-              <Button
-                className="h-11 w-full rounded-full font-bold"
-                disabled={!email.includes("@") || !fullName.trim() || !isAddressValid || submitting}
-                onClick={submitCheckout}
-              >
-                {submitting ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />}
-                {submitting ? "Saving..." : `Confirm order with ${crypto}`}
-                {!submitting && <ArrowRight size={15} />}
-              </Button>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* ── Notifications ──────────────────────────────────────── */}
       <Dialog open={notificationsOpen} onOpenChange={setNotificationsOpen}>
