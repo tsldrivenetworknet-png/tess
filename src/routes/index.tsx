@@ -15,8 +15,10 @@ import {
   PackageCheck,
   Search,
   ShieldCheck,
+  ShoppingBag,
   Sparkles,
   Ticket,
+  Truck,
   Wallet,
   X,
   Zap,
@@ -497,7 +499,7 @@ function Index() {
                 const isDropExpired = drop.time_left - elapsed <= 0;
                 return (
                   <article className="product-card" key={drop.id}>
-                    <div className={`product-image-frame ${drop.kind === "giveaway" ? "is-sneaker" : ""}`}>
+                    <div className="product-image-frame">
                       {drop.image_url ? (
                         <img className="product-image" src={drop.image_url} alt={drop.image_alt} />
                       ) : (
@@ -506,41 +508,59 @@ function Index() {
                         </div>
                       )}
                       <span className={`product-badge ${drop.kind === "shop" ? "is-paid" : ""}`}>
-                        {drop.kind === "giveaway" ? <Gift size={10} /> : <Zap size={10} />}
-                        {drop.kind === "giveaway" ? "Free giveaway" : "Available to buy"}
+                        {drop.kind === "giveaway" ? (
+                          <><Gift size={11} className="mr-1 inline text-emerald-400" /> Free Giveaway</>
+                        ) : (
+                          <><ShoppingBag size={11} className="mr-1 inline text-foreground" /> Direct Purchase</>
+                        )}
                       </span>
                       <Button variant="ghost" size="icon" className="product-save" aria-label={savedDrops.includes(drop.id) ? `Remove ${drop.name} from saved` : `Save ${drop.name}`} onClick={() => toggleSaved(drop.id)}>
                         <Heart size={14} fill={savedDrops.includes(drop.id) ? "currentColor" : "none"} />
                       </Button>
                     </div>
+
                     <div className="product-card-body">
                       <div className="product-category">{drop.category}</div>
                       <h3 className="product-name">{drop.name}</h3>
+
                       <div className="product-value">
-                        {drop.kind === "shop"
-                          ? <><strong>{drop.amount}</strong> <span>· {drop.prize_value}</span></>
-                          : <><strong>{drop.prize_value}</strong> prize value</>}
+                        {drop.kind === "shop" ? (
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-xl font-black text-foreground">{drop.amount}</span>
+                            <span className="text-xs text-muted-foreground line-through">{drop.prize_value}</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">100% FREE</span>
+                            <span className="text-xs text-muted-foreground font-medium">({drop.prize_value} value)</span>
+                          </div>
+                        )}
                       </div>
-                      <div className={`product-timer ${isDropExpired ? "opacity-60" : ""}`}>
-                        <Clock3 size={13} />
-                        <span>{isDropExpired ? "00:00:00" : formatCountdown(drop.time_left - elapsed)}</span>
-                        <span className="product-timer-label">{isDropExpired ? "ROUND ENDED" : (drop.kind === "shop" ? "OFFER ENDS" : "LEFT TO CLAIM")}</span>
+
+                      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-3">
+                        <span className="inline-flex items-center gap-1 font-mono font-semibold text-foreground">
+                          <Clock3 size={12} className="text-muted-foreground" />
+                          {isDropExpired ? "Round Ended" : formatCountdown(drop.time_left - elapsed)}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[11px]">
+                          <Truck size={12} /> {drop.delivery_fee} delivery
+                        </span>
                       </div>
-                      <div className="product-footer">
-                        <span className="entry-count"><PackageCheck size={12} /> {drop.delivery_fee !== "Free" ? drop.delivery_fee + " delivery" : "Free delivery"} · {drop.delivery_time}</span>
+
+                      <div className="mt-4">
                         <Button
                           size="sm"
-                          className="product-cta rounded-full"
+                          className="w-full rounded-full h-10 font-bold text-xs shadow-sm cursor-pointer"
                           disabled={isDropExpired}
                           onClick={() => !isDropExpired && beginDropAction(drop)}
                         >
-                          {isDropExpired ? "Ended" : (drop.kind === "giveaway" ? "Claim" : "Shop")}
-                          {!isDropExpired && <ArrowRight size={12} />}
+                          {isDropExpired
+                            ? "Allocation Ended"
+                            : drop.kind === "giveaway"
+                            ? "Claim This Tesla Drop"
+                            : `Buy Now · ${drop.amount}`}
+                          {!isDropExpired && <ArrowRight size={13} className="ml-1" />}
                         </Button>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-[8px] text-muted-foreground">
-                        <span><Ticket size={10} className="mr-1 inline" />{drop.entry_label}</span>
-                        <span>{drop.shipping === "Free" ? "Free shipping" : drop.delivery_fee + " delivery"}</span>
                       </div>
                     </div>
                   </article>

@@ -46,7 +46,7 @@ export const Route = createFileRoute("/checkout")({
   head: () => ({
     meta: [
       { title: "Tesla Allocation & Checkout — Tesla Drop Club" },
-      { name: "description", content: "Complete your official Tesla delivery allocation and carrier dispatch reservation." },
+      { name: "description", content: "Complete your Tesla delivery allocation and carrier dispatch reservation." },
       { property: "og:title", content: "Tesla Allocation & Checkout" },
     ],
   }),
@@ -60,6 +60,52 @@ function formatCountdown(totalSeconds: number) {
   const minutes = Math.floor((remaining % 3600) / 60);
   const seconds = remaining % 60;
   return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+}
+
+function CryptoIcon({ coin, size = 18 }: { coin: string; size?: number }) {
+  const c = (coin || "").toUpperCase().trim();
+  if (c === "BTC" || c === "BITCOIN") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0 drop-shadow-xs">
+        <circle cx="16" cy="16" r="16" fill="#F7931A" />
+        <path
+          d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783-1.728-.431-.709 2.839c-.376-.086-.745-.17-1.104-.26l.002-.007-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.314-1.256-.314l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.705 2.828 1.728.432.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.535 2.146-4.148.986-5.319.695l.949-3.805c1.172.292 4.93.872 4.37 3.11zm.536-5.568c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.697 3.61 2.733z"
+          fill="#FFFFFF"
+        />
+      </svg>
+    );
+  }
+  if (c === "ETH" || c === "ETHEREUM") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0 drop-shadow-xs">
+        <circle cx="16" cy="16" r="16" fill="#627EEA" />
+        <path d="M16.498 4v8.87l7.497 3.35z" fill="#FFF" fillOpacity=".6" />
+        <path d="M16.498 4L9 16.22l7.498-3.35z" fill="#FFF" />
+        <path d="M16.498 21.968v6.027L24 17.616z" fill="#FFF" fillOpacity=".6" />
+        <path d="M16.498 27.995v-6.028L9 17.616z" fill="#FFF" />
+        <path d="M16.498 20.573l7.497-4.353-7.497-3.348z" fill="#FFF" fillOpacity=".2" />
+        <path d="M9 16.22l7.498 4.353v-7.701z" fill="#FFF" fillOpacity=".6" />
+      </svg>
+    );
+  }
+  if (c === "USDT" || c === "TETHER") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0 drop-shadow-xs">
+        <circle cx="16" cy="16" r="16" fill="#26A17B" />
+        <path d="M17.922 17.383c-.11.008-.68.04-1.895.04-1.045 0-1.696-.032-1.87-.04-4.22-.187-7.37-1.025-7.37-2.029 0-1.003 3.15-1.841 7.37-2.03v3.232c.178.012.839.043 1.888.043 1.189 0 1.767-.035 1.877-.043v-3.23c4.212.188 7.354 1.026 7.354 2.028 0 1.004-3.142 1.842-7.354 2.03v-.001zm0-4.394v-2.31h5.83V7.613H8.297v3.066h5.755v2.31c-4.78.225-8.384 1.25-8.384 2.483 0 1.233 3.604 2.257 8.384 2.482v7.75h3.87v-7.75c4.773-.225 8.367-1.25 8.367-2.482 0-1.233-3.594-2.258-8.367-2.483z" fill="#FFF"/>
+      </svg>
+    );
+  }
+  if (c === "USDC") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0 drop-shadow-xs">
+        <circle cx="16" cy="16" r="16" fill="#2775CA" />
+        <path d="M16 6.25A9.75 9.75 0 1025.75 16 9.76 9.76 0 0016 6.25zm0 17.5A7.75 7.75 0 1123.75 16 7.76 7.76 0 0116 23.75z" fill="#FFF" fillOpacity=".3"/>
+        <path d="M17.15 11.2h-2.1v1.16a3.68 3.68 0 00-2.3 1.34 3.1 3.1 0 00-.6 1.94c0 1.8 1.1 2.65 3.3 2.95 1.45.2 1.8.65 1.8 1.4 0 .75-.6 1.3-1.6 1.3a2.53 2.53 0 01-2.2-1.2l-1.6 1a4.2 4.2 0 003.5 2v1.2h2.1v-1.2a3.78 3.78 0 002.5-1.4 3.3 3.3 0 00.7-2.1c0-1.85-1.15-2.75-3.45-3.05-1.4-.2-1.75-.65-1.75-1.3 0-.65.55-1.2 1.45-1.2a2.38 2.38 0 011.95 1l1.6-.9a3.9 3.9 0 00-3.05-1.74z" fill="#FFF"/>
+      </svg>
+    );
+  }
+  return <Wallet size={size} />;
 }
 
 function CheckoutPage() {
@@ -200,7 +246,36 @@ function CheckoutPage() {
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentDrop || !isFormValid) return;
+    if (!currentDrop) return;
+
+    if (!fullName.trim()) {
+      alert("Please enter your full legal name.");
+      return;
+    }
+    if (!email.trim() || !email.includes("@")) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+    if (!street.trim()) {
+      alert("Please enter your delivery street address.");
+      return;
+    }
+    if (!city.trim()) {
+      alert("Please enter your delivery city.");
+      return;
+    }
+    if (!stateProvince.trim()) {
+      alert("Please enter your state or province.");
+      return;
+    }
+    if (!postalCode.trim()) {
+      alert("Please enter your postal / ZIP code.");
+      return;
+    }
+    if (!country.trim()) {
+      alert("Please select your country.");
+      return;
+    }
 
     setSubmitting(true);
     const orderRef = "TSLA-" + Math.floor(100000 + Math.random() * 900000);
@@ -289,7 +364,7 @@ function CheckoutPage() {
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-bold shadow-xs">
               <ShieldCheck size={14} className="text-emerald-500" />
-              <span>Official Tesla Allocation Gateway</span>
+              <span>Tesla Allocation & Delivery Gateway</span>
             </span>
           </div>
         </div>
@@ -529,7 +604,7 @@ function CheckoutPage() {
                     Recipient & Delivery Details
                   </h1>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Provide the official registration name and shipping address for vehicle delivery.
+                    Provide the recipient registration name and shipping address for vehicle delivery.
                   </p>
                 </div>
 
@@ -665,8 +740,8 @@ function CheckoutPage() {
                       className="w-full h-11 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-foreground"
                     >
                       {COUNTRIES.map((c) => (
-                        <option key={c.code} value={c.name}>
-                          {c.name}
+                        <option key={c} value={c}>
+                          {c}
                         </option>
                       ))}
                     </select>
@@ -702,7 +777,7 @@ function CheckoutPage() {
                               : "border-border bg-background text-foreground hover:bg-muted"
                           }`}
                         >
-                          <Wallet size={14} />
+                          <CryptoIcon coin={coin} size={18} />
                           <span>{coin}</span>
                         </button>
                       ))}
@@ -751,7 +826,7 @@ function CheckoutPage() {
                 <div className="space-y-3 pt-3">
                   <Button
                     type="submit"
-                    disabled={!isFormValid || submitting}
+                    disabled={submitting}
                     className="w-full rounded-full font-bold text-sm h-12 shadow-lg cursor-pointer"
                   >
                     {submitting ? (
@@ -762,8 +837,8 @@ function CheckoutPage() {
                     ) : (
                       <>
                         {currentDrop.kind === "giveaway"
-                          ? `Confirm Claim & Reserve Transport (${currentDrop.delivery_fee})`
-                          : `Confirm Purchase & Reserve Allocation (${currentDrop.delivery_fee})`}
+                          ? `Confirm Claim & Reserve Spot · ${currentDrop.delivery_fee}`
+                          : `Confirm Purchase & Reserve Spot · ${currentDrop.delivery_fee}`}
                         <ArrowRight size={16} className="ml-2" />
                       </>
                     )}

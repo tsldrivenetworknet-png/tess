@@ -19,7 +19,7 @@ export type ExtendedSiteContent = {
 export const DEFAULT_SITE_CONTENT: ExtendedSiteContent = {
   topCountdownBadge: "EXCLUSIVE TESLA DROP CLOSING",
   topCountdownText: "Tesla Cybertruck (Cyberbeast) · Claim window closing soon!",
-  sectionEyebrow: "OFFICIAL TESLA ALLOCATIONS",
+  sectionEyebrow: "TESLA FLEET ALLOCATIONS",
   sectionTitle: "The Tesla Fleet",
   sectionCaption: "Exclusive promotional drops, giveaways, and immediate delivery allocations.",
   demoNotificationsEnabled: true,
