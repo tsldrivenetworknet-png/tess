@@ -81,15 +81,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Drop Club — limited drops, real rewards" },
-      { name: "description", content: "Discover limited-time prize drops and standout finds at Drop Club." },
-      { name: "author", content: "Drop Club" },
-      { property: "og:title", content: "Drop Club — limited drops, real rewards" },
-      { property: "og:description", content: "Discover limited-time prize drops and standout finds at Drop Club." },
+      { title: "Tesla Drop Club — Exclusive Tesla Allocations & Deliveries" },
+      { name: "description", content: "Reserve your Tesla Cybertruck, Roadster, Model S Plaid and Model X allocation with priority carrier delivery." },
+      { name: "author", content: "Tesla Drop Club" },
+      { property: "og:title", content: "Tesla Drop Club — Exclusive Tesla Allocations & Deliveries" },
+      { property: "og:description", content: "Reserve your Tesla Cybertruck, Roadster, Model S Plaid and Model X allocation with priority carrier delivery." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Drop Club — limited drops, real rewards" },
-      { name: "twitter:description", content: "Discover limited-time prize drops and standout finds at Drop Club." },
+      { name: "twitter:title", content: "Tesla Drop Club — Exclusive Tesla Allocations & Deliveries" },
+      { name: "twitter:description", content: "Reserve your Tesla Cybertruck, Roadster, Model S Plaid and Model X allocation with priority carrier delivery." },
     ],
     links: [
       {

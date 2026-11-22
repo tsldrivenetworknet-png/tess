@@ -28,6 +28,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { SiteHeader } from "@/components/SiteHeader";
+import { formatDisplayPrice, formatFeeDisplay } from "@/lib/priceFormatter";
+import {
+  getCachedDrops,
+  getCachedSiteConfig,
+  getCachedWalletConfig,
+  setCachedDrops,
+  setCachedSiteConfig,
+  setCachedWalletConfig,
+} from "@/lib/cache";
 import {
   getExtendedContent,
   type ExtendedSiteContent,
@@ -47,17 +57,17 @@ const categories: DropCategory[] = ["All drops", "Giveaways", "Shop"];
 
 const DEFAULT_SITE: DbSiteConfig = {
   id: 1,
-  site_name: "dropclub",
+  site_name: "Tesla Drop Club",
   logo_url: "",
   icon_url: "",
-  announcement_text: "FRESH FINDS. REAL WINNERS. YOUR NEXT FAVOURITE STARTS HERE.",
-  hero_headline: "A little luck.\nA lot of love.",
-  hero_subtitle: "Your next favourite thing is one drop away.",
+  announcement_text: "TESLA DROP CLUB · WIN OR RESERVE YOUR CYBERTRUCK & ROADSTER TODAY",
+  hero_headline: "Drive The Future.\nClaim Your Dream Tesla.",
+  hero_subtitle: "Limited-time giveaways & immediate allocations for Cybertruck, Roadster 2.0, Model S Plaid and Model X.",
   hero_image_url: "",
   hero_entries: "",
   hero_prize_value: "",
   hero_delivery_fee: "",
-  footer_text: "2026 Drop Club. Good things happen here.",
+  footer_text: "© 2026 Tesla Drop Club. Verified allocations and limited promotional drops.",
   updated_at: "",
 };
 
@@ -74,14 +84,14 @@ const DEFAULT_WALLET: DbWalletConfig = {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Drop Club - Limited-time prizes and finds" },
-      { name: "description", content: "Claim curated prize drops or shop standout finds." },
-      { property: "og:title", content: "Drop Club - Limited-time prizes and finds" },
-      { property: "og:description", content: "Claim curated prize drops or shop standout finds." },
+      { title: "Tesla Drop Club — Exclusive Tesla Allocations & Deliveries" },
+      { name: "description", content: "Claim exclusive Tesla promotional prize drops or reserve priority carrier allocations." },
+      { property: "og:title", content: "Tesla Drop Club — Exclusive Tesla Allocations & Deliveries" },
+      { property: "og:description", content: "Claim exclusive Tesla promotional prize drops or reserve priority carrier allocations." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Drop Club - Limited-time prizes and finds" },
-      { name: "twitter:description", content: "Claim curated prize drops or shop standout finds." },
+      { name: "twitter:title", content: "Tesla Drop Club — Exclusive Tesla Allocations & Deliveries" },
+      { name: "twitter:description", content: "Claim exclusive Tesla promotional prize drops or reserve priority carrier allocations." },
     ],
   }),
   component: Index,
@@ -132,11 +142,14 @@ function ClockBlocks({ seconds, label }: { seconds: number; label?: string }) {
 }
 
 function Index() {
-  // ── Data from Supabase ───────────────────────────────────────
-  const [drops, setDrops] = useState<DbDrop[]>([]);
-  const [siteConfig, setSiteConfig] = useState<DbSiteConfig>(DEFAULT_SITE);
-  const [walletConfig, setWalletConfig] = useState<DbWalletConfig>(DEFAULT_WALLET);
-  const [loading, setLoading] = useState(true);
+  // ── Data from Supabase / Memory Cache ────────────────────────
+  const cachedDrops = getCachedDrops();
+  const cachedSite = getCachedSiteConfig();
+  const cachedWallet = getCachedWalletConfig();
+  const [drops, setDrops] = useState<DbDrop[]>(cachedDrops || []);
+  const [siteConfig, setSiteConfig] = useState<DbSiteConfig>(cachedSite || DEFAULT_SITE);
+  const [walletConfig, setWalletConfig] = useState<DbWalletConfig>(cachedWallet || DEFAULT_WALLET);
+  const [loading, setLoading] = useState(!cachedDrops || cachedDrops.length === 0);
 
   const loadData = useCallback(async () => {
     try {
@@ -148,6 +161,9 @@ function Index() {
       setDrops(dropsData);
       setSiteConfig(siteData);
       setWalletConfig(walletData);
+      setCachedDrops(dropsData);
+      setCachedSiteConfig(siteData);
+      setCachedWalletConfig(walletData);
     } catch (err) {
       console.error("Failed to load data", err);
     } finally {
@@ -278,6 +294,10 @@ function Index() {
   const navigate = useNavigate();
 
   const beginDropAction = (drop: DbDrop) => {
+    // Populate client cache immediately so checkout renders in 0ms
+    setCachedDrops(drops);
+    setCachedSiteConfig(siteConfig);
+    setCachedWalletConfig(walletConfig);
     navigate({
       to: "/checkout",
       search: { dropId: drop.id, action: drop.kind },
@@ -387,43 +407,14 @@ function Index() {
         })()
       )}
 
-      {/* Header */}
-      <header className="site-header">
-        <div className="header-inner">
-          <a href="#top" className="brand-mark" aria-label={`${siteConfig.site_name} home`}>
-            {siteConfig.logo_url ? (
-              <img src={siteConfig.logo_url} alt={siteConfig.site_name} className="h-8 w-auto object-contain" />
-            ) : (
-              <>
-                {siteConfig.icon_url ? (
-                  <img src={siteConfig.icon_url} alt="" className="h-7 w-7 rounded object-contain" />
-                ) : (
-                  <span className="brand-symbol"><Zap size={17} fill="currentColor" /></span>
-                )}
-                <span>{siteConfig.site_name}<span className="text-primary">.</span></span>
-              </>
-            )}
-          </a>
-          <nav className="header-nav" aria-label="Main navigation">
-            <a href="#drops">The drops</a>
-            <a href="#how-it-works">How it works</a>
-          </nav>
-          <div className="header-actions">
-            <Button variant="ghost" size="icon" className="icon-action" aria-label={searchOpen ? "Close search" : "Search drops"} onClick={() => setSearchOpen((o) => !o)}>
-              {searchOpen ? <X size={16} /> : <Search size={16} />}
-            </Button>
-            <Button variant="ghost" size="icon" className="icon-action" aria-label="Notifications" onClick={() => setNotificationsOpen(true)}>
-              <Bell size={16} />
-            </Button>
-          </div>
-        </div>
-        {searchOpen && (
-          <div className="page-container pb-3">
-            <label className="sr-only" htmlFor="drop-search">Search prize drops</label>
-            <Input id="drop-search" autoFocus placeholder="Search prizes, categories..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          </div>
-        )}
-      </header>
+      {/* Static Top Navigation Bar */}
+      <SiteHeader
+        siteConfig={siteConfig}
+        drops={drops}
+        search={search}
+        onSearchChange={setSearch}
+        currentPage="home"
+      />
 
       <main id="top">
         {/* Hero */}
@@ -449,8 +440,8 @@ function Index() {
                     <div className="feature-meta">
                       {siteConfig.hero_entries && <span><strong>{siteConfig.hero_entries}</strong> entries</span>}
                       {siteConfig.hero_entries && siteConfig.hero_prize_value && <span>·</span>}
-                      {siteConfig.hero_prize_value && <span><strong>{siteConfig.hero_prize_value}</strong> prize value</span>}
-                      {siteConfig.hero_delivery_fee && <><span>·</span><span>Just <strong>{siteConfig.hero_delivery_fee}</strong> delivery</span></>}
+                      {siteConfig.hero_prize_value && <span><strong>{formatDisplayPrice(siteConfig.hero_prize_value)}</strong> prize value</span>}
+                      {siteConfig.hero_delivery_fee && <><span>·</span><span>Just <strong>{formatFeeDisplay(siteConfig.hero_delivery_fee)}</strong> delivery</span></>}
                     </div>
                   )}
                 </>
@@ -526,13 +517,13 @@ function Index() {
                       <div className="product-value">
                         {drop.kind === "shop" ? (
                           <div className="flex items-baseline gap-2">
-                            <span className="text-xl font-black text-foreground">{drop.amount}</span>
-                            <span className="text-xs text-muted-foreground line-through">{drop.prize_value}</span>
+                            <span className="text-xl font-black text-foreground">{formatDisplayPrice(drop.amount)}</span>
+                            <span className="text-xs text-muted-foreground line-through">{formatDisplayPrice(drop.prize_value)}</span>
                           </div>
                         ) : (
                           <div className="flex items-baseline gap-2">
                             <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">100% FREE</span>
-                            <span className="text-xs text-muted-foreground font-medium">({drop.prize_value} value)</span>
+                            <span className="text-xs text-muted-foreground font-medium">({formatDisplayPrice(drop.prize_value)} value)</span>
                           </div>
                         )}
                       </div>
@@ -543,7 +534,7 @@ function Index() {
                           {isDropExpired ? "Round Ended" : formatCountdown(drop.time_left - elapsed)}
                         </span>
                         <span className="inline-flex items-center gap-1 text-[11px]">
-                          <Truck size={12} /> {drop.delivery_fee} delivery
+                          <Truck size={12} /> {formatFeeDisplay(drop.delivery_fee)} delivery
                         </span>
                       </div>
 
@@ -558,7 +549,7 @@ function Index() {
                             ? "Allocation Ended"
                             : drop.kind === "giveaway"
                             ? "Claim This Tesla Drop"
-                            : `Buy Now · ${drop.amount}`}
+                            : `Buy Now · ${formatDisplayPrice(drop.amount)}`}
                           {!isDropExpired && <ArrowRight size={13} className="ml-1" />}
                         </Button>
                       </div>
@@ -592,7 +583,7 @@ function Index() {
                       <span className="side-timer">{formatCountdown(drops[drops.length - 1].time_left - elapsed)}</span>
                     </div>
                     <div className="mt-3 flex items-center justify-between">
-                      <span className="text-[9px] text-muted-foreground">{drops[drops.length - 1].delivery_fee !== "Free" ? drops[drops.length - 1].delivery_fee + " delivery" : "Free delivery"}</span>
+                      <span className="text-[9px] text-muted-foreground">{formatFeeDisplay(drops[drops.length - 1].delivery_fee)} delivery</span>
                       <Button size="sm" className="h-7 rounded-full px-3 text-[9px]" onClick={() => beginDropAction(drops[drops.length - 1])}>Take a look <ArrowRight size={11} /></Button>
                     </div>
                   </div>
@@ -612,7 +603,7 @@ function Index() {
                       )}
                       <span>
                         <span className="featured-name block">{drop.name}</span>
-                        <span className="featured-sub">{drop.kind === "shop" ? `${drop.amount} · ${drop.entry_label}` : `${drop.entry_label} · ${drop.delivery_fee} delivery`}</span>
+                        <span className="featured-sub">{drop.kind === "shop" ? `${formatDisplayPrice(drop.amount)} · ${drop.entry_label}` : `${drop.entry_label} · ${formatFeeDisplay(drop.delivery_fee)} delivery`}</span>
                       </span>
                       <span className="featured-time">{formatCountdown(drop.time_left - elapsed).split(" ").slice(0, 2).join(" ")}</span>
                     </button>
@@ -640,27 +631,6 @@ function Index() {
           <a className="text-link" href="#top">Back to top</a>
         </span>
       </footer>
-
-      {/* ── Notifications ──────────────────────────────────────── */}
-      <Dialog open={notificationsOpen} onOpenChange={setNotificationsOpen}>
-        <DialogContent className="gap-5 rounded-md p-5 sm:max-w-[380px] sm:p-6">
-          <DialogTitle className="font-serif text-2xl">Little updates.</DialogTitle>
-          <DialogDescription className="modal-copy">The good news and the almost-gone news.</DialogDescription>
-          <div className="grid gap-3">
-            {drops.slice(0, 2).map((drop) => (
-              <div key={drop.id} className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
-                <span className="toast-icon"><Sparkles size={14} /></span>
-                <p className="m-0 text-[11px] leading-relaxed">
-                  <strong className="mb-1 block">{drop.name}</strong>
-                  {drop.kind === "giveaway" ? `${drop.entry_label} · ${drop.delivery_fee} delivery` : `${drop.amount} · ${drop.entry_label}`}
-                </p>
-              </div>
-            ))}
-            {drops.length === 0 && <p className="text-xs text-muted-foreground">No drops yet.</p>}
-          </div>
-          <Button variant="outline" className="w-full rounded-full" onClick={() => setNotificationsOpen(false)}>Lovely, thanks <Check size={14} /></Button>
-        </DialogContent>
-      </Dialog>
 
       {/* ── Live Claim Notification Popup (2-min interval + vibrate) ── */}
       {currentAlert && (
