@@ -1,9 +1,9 @@
 ﻿import { useState, useRef, useCallback, useEffect } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  AlertCircle, ArrowLeft, ArrowLeftRight, Bell, Check, CheckCircle2, ChevronRight,
+  AlertCircle, ArrowLeft, ArrowLeftRight, Bell, Check, CheckCircle2, ChevronDown, ChevronRight,
   Copy, Edit2, ExternalLink, Eye, EyeOff, Gift, ImagePlus,
-  LayoutDashboard, Loader2, Lock, LogOut, Package, Plus, Settings,
+  LayoutDashboard, Loader2, Lock, LogOut, Menu, Package, Plus, Settings,
   ShoppingBag, Star, Trash2, Users, Wallet, X, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -265,6 +265,7 @@ function SaveBar({ saving, saved }: { saving: boolean; saved: boolean }) {
 
 function AdminPanel() {
   const [section, setSection] = useState<AdminSection>("dashboard");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [siteConfig, setSiteConfig] = useState<DbSiteConfig | null>(null);
@@ -303,6 +304,115 @@ function AdminPanel() {
 
   return (
     <div className="admin-shell">
+      {/* ── Mobile Header & Vertical Drawer (<900px) ── */}
+      <header className="admin-mobile-header">
+        <div className="admin-mobile-header-top">
+          <div className="flex items-center gap-2 min-w-0">
+            {siteConfig?.icon_url ? (
+              <img src={siteConfig.icon_url} alt="Logo" className="h-6 w-6 rounded object-contain shrink-0" />
+            ) : (
+              <span className="brand-symbol"><Zap size={14} fill="currentColor" /></span>
+            )}
+            <span className="text-xs font-black truncate">{siteConfig?.site_name || "Admin"}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1 text-[11px] font-bold text-muted-foreground hover:text-foreground px-2 py-1 rounded-md bg-muted"
+            >
+              <ExternalLink size={11} /> Site
+            </Link>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-[11px] font-bold text-destructive hover:bg-destructive/10 px-2 py-1 rounded-md cursor-pointer"
+              onClick={handleLogout}
+              title="Lock & Sign out"
+            >
+              <LogOut size={12} />
+            </button>
+            <button
+              type="button"
+              className="admin-menu-toggle-btn cursor-pointer"
+              onClick={() => setMobileMenuOpen((v) => !v)}
+              aria-label="Toggle navigation menu"
+            >
+              {mobileMenuOpen ? <X size={17} /> : <Menu size={17} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Dropdown Section Switcher on mobile - NO horizontal sliding */}
+        <div className="admin-mobile-selector-bar">
+          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider shrink-0">View:</span>
+          <div className="relative flex-1">
+            <select
+              value={section}
+              onChange={(e) => {
+                setSection(e.target.value as AdminSection);
+                setMobileMenuOpen(false);
+              }}
+              className="admin-mobile-select"
+            >
+              {navItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          </div>
+        </div>
+
+        {/* Collapsible Mobile Vertical Drawer */}
+        {mobileMenuOpen && (
+          <div className="admin-mobile-drawer">
+            <div className="p-2 space-y-1">
+              <p className="px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">Admin Sections</p>
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`admin-mobile-drawer-item ${section === item.id ? "active" : ""}`}
+                  onClick={() => {
+                    setSection(item.id);
+                    setMobileMenuOpen(false);
+                  }}
+                >
+                  <span className="admin-mobile-drawer-icon">{item.icon}</span>
+                  <span className="font-semibold text-xs flex-1 text-left">{item.label}</span>
+                  {section === item.id ? (
+                    <Check size={14} className="text-primary shrink-0" />
+                  ) : (
+                    <ChevronRight size={13} className="text-muted-foreground/50 shrink-0" />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <div className="border-t border-border p-2 space-y-1 bg-muted/30">
+              <Link
+                to="/"
+                onClick={() => setMobileMenuOpen(false)}
+                className="admin-mobile-drawer-item text-muted-foreground"
+              >
+                <ExternalLink size={14} />
+                <span className="text-xs">View Storefront</span>
+              </Link>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="admin-mobile-drawer-item text-destructive hover:bg-destructive/10 cursor-pointer"
+              >
+                <LogOut size={14} />
+                <span className="text-xs font-bold">Lock & Sign Out</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </header>
+
+      {/* ── Desktop Sidebar (>=900px) ── */}
       <aside className="admin-sidebar">
         <div className="admin-brand-bar">
           <div className="admin-brand">
@@ -579,7 +689,7 @@ function SiteSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; 
           onUrlInput={(url) => { set("hero_image_url")(url); setPendingFiles((p) => { const c = { ...p }; delete c.hero_image_url; return c; }); }}
           aspectClass="aspect-[16/9] max-h-56"
         />
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="admin-field"><label className="admin-label">Entry count</label><Input value={form.hero_entries} onChange={(e) => set("hero_entries")(e.target.value)} placeholder="2,184" /></div>
           <div className="admin-field"><label className="admin-label">Prize value</label><Input value={form.hero_prize_value} onChange={(e) => set("hero_prize_value")(e.target.value)} placeholder="$240" /></div>
           <div className="admin-field"><label className="admin-label">Delivery fee</label><Input value={form.hero_delivery_fee} onChange={(e) => set("hero_delivery_fee")(e.target.value)} placeholder="$8.50" /></div>
@@ -709,13 +819,13 @@ function DropsSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void;
         </div>
         <div className="admin-form-section">
           <h2 className="admin-section-title">Basic info</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="admin-field"><label className="admin-label">Drop name</label><Input value={editing.name ?? ""} onChange={(e) => setField("name")(e.target.value)} /></div>
             <div className="admin-field"><label className="admin-label">Category tag</label><Input value={editing.category ?? ""} onChange={(e) => setField("category")(e.target.value)} placeholder="STYLE · LIMITED EDITION" /></div>
           </div>
           <div className="admin-field">
             <label className="admin-label font-bold text-xs uppercase tracking-wider text-muted-foreground">Product Mode / Type</label>
-            <div className="flex flex-wrap gap-3 mt-1.5">
+            <div className="flex flex-col sm:flex-row gap-2.5 mt-1.5">
               <button
                 type="button"
                 className={`flex items-center gap-2 rounded-xl border-2 px-4 py-2.5 text-xs font-bold transition-all cursor-pointer ${
@@ -754,14 +864,14 @@ function DropsSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void;
         </div>
         <div className="admin-form-section">
           <h2 className="admin-section-title">Pricing</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="admin-field"><label className="admin-label">Prize value / RRP</label><Input value={editing.prize_value ?? ""} onChange={(e) => setField("prize_value")(e.target.value)} placeholder="$240" /></div>
             {editing.kind === "shop" && <div className="admin-field"><label className="admin-label">Sale price</label><Input value={editing.amount ?? ""} onChange={(e) => setField("amount")(e.target.value)} placeholder="$899" /></div>}
           </div>
         </div>
         <div className="admin-form-section">
           <h2 className="admin-section-title">Delivery</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="admin-field">
               <label className="admin-label">Delivery fee</label>
               <Input value={editing.delivery_fee ?? ""} onChange={(e) => setField("delivery_fee")(e.target.value)} placeholder="$8.50 or Free" />
@@ -773,7 +883,7 @@ function DropsSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void;
         </div>
         <div className="admin-form-section">
           <h2 className="admin-section-title">Drop timer and label</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="admin-field">
               <label className="admin-label">Time left (seconds)</label>
               <Input type="number" value={editing.time_left ?? 86400} onChange={(e) => setEditing((ed) => ed ? { ...ed, time_left: Number(e.target.value) } : ed)} />
@@ -917,8 +1027,8 @@ function WalletSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
     <div className="admin-form">
       <div className="admin-form-section">
         <h2 className="admin-section-title">Primary wallet</h2>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="admin-field col-span-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="admin-field sm:col-span-2">
             <label className="admin-label">Wallet address</label>
             <div className="relative flex items-center">
               <Input type={showP ? "text" : "password"} value={form.primary_address} onChange={(e) => set("primary_address")(e.target.value)} placeholder="0x... or bc1..." className="pr-16 font-mono text-xs" />
@@ -928,7 +1038,7 @@ function WalletSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
               </div>
             </div>
           </div>
-          <div className="admin-field"><label className="admin-label">Coin</label><Input value={form.primary_coin} onChange={(e) => set("primary_coin")(e.target.value.toUpperCase())} placeholder="ETH" /></div>
+          <div className="admin-field sm:col-span-1"><label className="admin-label">Coin</label><Input value={form.primary_coin} onChange={(e) => set("primary_coin")(e.target.value.toUpperCase())} placeholder="ETH" /></div>
         </div>
         {form.primary_address && <div className="mt-2 rounded-md bg-muted p-3"><p className="text-[9px] font-bold uppercase text-muted-foreground mb-1">Preview (shown to users)</p><p className="font-mono text-xs break-all">{form.primary_address}</p></div>}
         
@@ -957,8 +1067,8 @@ function WalletSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
 
       <div className="admin-form-section">
         <h2 className="admin-section-title">Secondary wallet</h2>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="admin-field col-span-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="admin-field sm:col-span-2">
             <label className="admin-label">Wallet address</label>
             <div className="relative flex items-center">
               <Input type={showS ? "text" : "password"} value={form.secondary_address} onChange={(e) => set("secondary_address")(e.target.value)} placeholder="0x... or bc1..." className="pr-16 font-mono text-xs" />
@@ -968,7 +1078,7 @@ function WalletSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
               </div>
             </div>
           </div>
-          <div className="admin-field"><label className="admin-label">Coin</label><Input value={form.secondary_coin} onChange={(e) => set("secondary_coin")(e.target.value.toUpperCase())} placeholder="BTC" /></div>
+          <div className="admin-field sm:col-span-1"><label className="admin-label">Coin</label><Input value={form.secondary_coin} onChange={(e) => set("secondary_coin")(e.target.value.toUpperCase())} placeholder="BTC" /></div>
         </div>
 
         {/* Upload QR Code for Secondary Wallet */}
@@ -999,13 +1109,13 @@ function WalletSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
         <div className="flex flex-wrap gap-2 mb-3">
           {form.accepted_coins.map((coin) => (
             <span key={coin} className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs font-bold">
-              {coin}<button type="button" className="ml-1 text-muted-foreground hover:text-destructive" onClick={() => removeCoin(coin)}><X size={11} /></button>
+              {coin}<button type="button" className="ml-1 text-muted-foreground hover:text-destructive cursor-pointer" onClick={() => removeCoin(coin)}><X size={11} /></button>
             </span>
           ))}
         </div>
-        <div className="flex gap-2">
-          <Input value={newCoin} onChange={(e) => setNewCoin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCoin()} placeholder="Add coin e.g. USDT" className="max-w-48" />
-          <Button size="sm" variant="outline" className="rounded-full" onClick={addCoin}><Plus size={13} /> Add</Button>
+        <div className="flex flex-col sm:flex-row gap-2 max-w-sm">
+          <Input value={newCoin} onChange={(e) => setNewCoin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCoin()} placeholder="Add coin e.g. USDT" className="flex-1" />
+          <Button size="sm" variant="outline" className="rounded-full shrink-0 font-bold" onClick={addCoin}><Plus size={13} /> Add Coin</Button>
         </div>
         <div className="mt-3 rounded-md bg-muted p-3 text-[10px] text-muted-foreground"><AlertCircle size={12} className="inline mr-1" />First coin in list is selected by default. Primary wallet address shows for primary coin, secondary for secondary coin.</div>
       </div>
@@ -1058,32 +1168,115 @@ function OrdersSection() {
       {filtered.length === 0 ? (
         <div className="admin-empty-state"><Users size={40} className="text-muted-foreground/40" /><p className="text-sm text-muted-foreground">{orders.length === 0 ? "No submissions yet. They will appear here when users claim or order." : "No results match."}</p></div>
       ) : (
-        <div className="overflow-x-auto">
-          <div className="admin-orders-table min-w-[700px]">
-            <div className="admin-orders-header">
-              <span>Email</span><span>Name</span><span>Drop</span><span>Delivery</span><span>Date</span><span>Status</span><span></span>
-            </div>
+        <>
+          {/* Mobile Cards View (<768px) - 100% responsive with NO horizontal scroll */}
+          <div className="block md:hidden space-y-3">
             {filtered.map((o) => (
-              <div className="admin-orders-row" key={o.id}>
-                <div><p className="text-xs font-semibold truncate">{o.email}</p></div>
-                <div><p className="text-xs truncate">{o.full_name}</p><p className="text-[10px] text-muted-foreground truncate">{o.address}</p></div>
-                <div><p className="text-xs truncate">{o.drop_name}</p><span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold ${o.kind === "giveaway" ? "bg-sunshine text-sunshine-foreground" : "bg-secondary text-secondary-foreground"}`}>{o.kind}</span></div>
-                <div><p className="text-[10px] text-muted-foreground">{o.delivery_fee}</p>{o.crypto && <p className="text-[10px] text-muted-foreground">{o.crypto}</p>}</div>
-                <div><p className="text-[10px] text-muted-foreground">{new Date(o.created_at).toLocaleDateString()}</p></div>
-                <div><StatusBadge status={o.status} /></div>
-                <div className="flex gap-1 flex-wrap">
-                  {updating === o.id ? <Loader2 size={14} className="animate-spin text-muted-foreground" /> : (
+              <div key={o.id} className="rounded-xl border border-border bg-card p-3.5 shadow-2xs space-y-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-foreground truncate">{o.full_name || "Anonymous Customer"}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{o.email}</p>
+                  </div>
+                  <StatusBadge status={o.status} />
+                </div>
+
+                <div className="rounded-lg bg-muted/60 p-2.5 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-foreground truncate">{o.drop_name}</span>
+                    <span className={`inline-flex items-center shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${o.kind === "giveaway" ? "bg-sunshine text-sunshine-foreground" : "bg-secondary text-secondary-foreground"}`}>
+                      {o.kind === "giveaway" ? "Giveaway" : "Shop"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span>Delivery fee:</span>
+                    <span className="font-bold text-foreground">{o.delivery_fee}</span>
+                  </div>
+                  {o.crypto && (
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>Crypto rate:</span>
+                      <span className="font-mono text-foreground">{o.crypto}</span>
+                    </div>
+                  )}
+                  {o.address && (
+                    <div className="text-[10px] text-muted-foreground truncate pt-1 border-t border-border/40">
+                      📍 {o.address}
+                    </div>
+                  )}
+                  <div className="text-[10px] text-muted-foreground">
+                    Submitted: {new Date(o.created_at).toLocaleString()}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+                  {updating === o.id ? (
+                    <div className="flex items-center justify-center py-1 w-full">
+                      <Loader2 size={16} className="animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
                     <>
-                      {o.status !== "paid" && <button type="button" className="rounded px-2 py-1 text-[10px] font-semibold text-green-700 hover:bg-green-50 transition-colors" onClick={() => changeStatus(o.id, "paid")}>Mark paid</button>}
-                      {o.status !== "abandoned" && <button type="button" className="rounded px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-muted transition-colors" onClick={() => changeStatus(o.id, "abandoned")}>Abandon</button>}
-                      {o.status === "abandoned" && <button type="button" className="rounded px-2 py-1 text-[10px] font-semibold text-primary hover:bg-secondary transition-colors" onClick={() => changeStatus(o.id, "entered")}>Restore</button>}
+                      {o.status !== "paid" && (
+                        <button
+                          type="button"
+                          className="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold text-green-700 bg-green-500/10 hover:bg-green-500/20 border border-green-500/30 transition-colors cursor-pointer text-center"
+                          onClick={() => changeStatus(o.id, "paid")}
+                        >
+                          Mark Paid
+                        </button>
+                      )}
+                      {o.status !== "abandoned" && (
+                        <button
+                          type="button"
+                          className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold text-muted-foreground bg-muted hover:bg-muted/80 border border-border transition-colors cursor-pointer text-center"
+                          onClick={() => changeStatus(o.id, "abandoned")}
+                        >
+                          Abandon
+                        </button>
+                      )}
+                      {o.status === "abandoned" && (
+                        <button
+                          type="button"
+                          className="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/30 transition-colors cursor-pointer text-center"
+                          onClick={() => changeStatus(o.id, "entered")}
+                        >
+                          Restore
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
               </div>
             ))}
           </div>
-        </div>
+
+          {/* Desktop Table View (>=768px) */}
+          <div className="hidden md:block overflow-x-auto">
+            <div className="admin-orders-table min-w-[700px]">
+              <div className="admin-orders-header">
+                <span>Email</span><span>Name</span><span>Drop</span><span>Delivery</span><span>Date</span><span>Status</span><span></span>
+              </div>
+              {filtered.map((o) => (
+                <div className="admin-orders-row" key={o.id}>
+                  <div><p className="text-xs font-semibold truncate">{o.email}</p></div>
+                  <div><p className="text-xs truncate">{o.full_name}</p><p className="text-[10px] text-muted-foreground truncate">{o.address}</p></div>
+                  <div><p className="text-xs truncate">{o.drop_name}</p><span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold ${o.kind === "giveaway" ? "bg-sunshine text-sunshine-foreground" : "bg-secondary text-secondary-foreground"}`}>{o.kind}</span></div>
+                  <div><p className="text-[10px] text-muted-foreground">{o.delivery_fee}</p>{o.crypto && <p className="text-[10px] text-muted-foreground">{o.crypto}</p>}</div>
+                  <div><p className="text-[10px] text-muted-foreground">{new Date(o.created_at).toLocaleDateString()}</p></div>
+                  <div><StatusBadge status={o.status} /></div>
+                  <div className="flex gap-1 flex-wrap">
+                    {updating === o.id ? <Loader2 size={14} className="animate-spin text-muted-foreground" /> : (
+                      <>
+                        {o.status !== "paid" && <button type="button" className="rounded px-2 py-1 text-[10px] font-semibold text-green-700 hover:bg-green-50 transition-colors cursor-pointer" onClick={() => changeStatus(o.id, "paid")}>Mark paid</button>}
+                        {o.status !== "abandoned" && <button type="button" className="rounded px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-muted transition-colors cursor-pointer" onClick={() => changeStatus(o.id, "abandoned")}>Abandon</button>}
+                        {o.status === "abandoned" && <button type="button" className="rounded px-2 py-1 text-[10px] font-semibold text-primary hover:bg-secondary transition-colors cursor-pointer" onClick={() => changeStatus(o.id, "entered")}>Restore</button>}
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
       )}
       <div className="text-[10px] text-muted-foreground"><CheckCircle2 size={11} className="inline mr-1 text-green-600" />Showing {filtered.length} of {orders.length} submissions.</div>
     </div>
