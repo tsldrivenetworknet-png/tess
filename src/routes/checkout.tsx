@@ -25,6 +25,7 @@ import {
   Star,
   FileText,
   X,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +36,9 @@ import { formatDisplayPrice, formatFeeDisplay } from "@/lib/priceFormatter";
 import {
   fetchLiveCryptoRates,
   calculateCryptoAmount,
+  getWalletDeepLink,
+  getMetaMaskDeepLink,
+  getTrustWalletDeepLink,
   type CryptoRates,
   FALLBACK_RATES,
 } from "@/lib/cryptoRates";
@@ -134,7 +138,7 @@ function CryptoIcon({ coin, size = 18 }: { coin: string; size?: number }) {
   return <Wallet size={size} />;
 }
 
-function CheckoutPage() {
+export function CheckoutPage() {
   const search = Route.useSearch();
   const navigate = useNavigate();
 
@@ -143,6 +147,28 @@ function CheckoutPage() {
   const initialSite = getCachedSiteConfig();
   const initialWallet = getCachedWalletConfig();
   const initialTestimonials = getCachedTestimonials();
+
+  // Restore saved active order from localStorage so app switching never wipes confirmation screen
+  const [submittedOrder, setSubmittedOrder] = useState<any | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const saved = localStorage.getItem("tdc_active_order");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Restore form draft fields from localStorage
+  const savedDraft = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("tdc_checkout_draft");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const [loading, setLoading] = useState<boolean>(initialDrops.length === 0);
   const [drops, setDrops] = useState<DbDrop[]>(initialDrops);
@@ -157,22 +183,66 @@ function CheckoutPage() {
 
   const [selectedDropId, setSelectedDropId] = useState<string>(search.dropId || "");
   const [copied, setCopied] = useState(false);
+  const [copiedAmount, setCopiedAmount] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submittedOrder, setSubmittedOrder] = useState<any | null>(null);
 
-  // Form Fields
-  const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [street, setStreet] = useState("");
-  const [apartment, setApartment] = useState("");
-  const [city, setCity] = useState("");
-  const [stateProvince, setStateProvince] = useState("");
-  const [postalCode, setPostalCode] = useState("");
-  const [country, setCountry] = useState("United States");
+  // Form Fields with draft hydration
+  const [email, setEmail] = useState(() => savedDraft?.email || "");
+  const [fullName, setFullName] = useState(() => savedDraft?.fullName || "");
+  const [phone, setPhone] = useState(() => savedDraft?.phone || "");
+  const [street, setStreet] = useState(() => savedDraft?.street || "");
+  const [apartment, setApartment] = useState(() => savedDraft?.apartment || "");
+  const [city, setCity] = useState(() => savedDraft?.city || "");
+  const [stateProvince, setStateProvince] = useState(() => savedDraft?.stateProvince || "");
+  const [postalCode, setPostalCode] = useState(() => savedDraft?.postalCode || "");
+  const [country, setCountry] = useState(() => savedDraft?.country || "United States");
   const [crypto, setCrypto] = useState(
     initialWallet?.accepted_coins?.[0] || initialWallet?.primary_coin || "BTC"
   );
+
+  // Sync draft to localStorage so user doesn't lose inputs on reload
+  useEffect(() => {
+    if (typeof window !== "undefined" && !submittedOrder) {
+      try {
+        localStorage.setItem(
+          "tdc_checkout_draft",
+          JSON.stringify({
+            email,
+            fullName,
+            phone,
+            street,
+            apartment,
+            city,
+            stateProvince,
+            postalCode,
+            country,
+          })
+        );
+      } catch {}
+    }
+  }, [email, fullName, phone, street, apartment, city, stateProvince, postalCode, country, submittedOrder]);
+
+  // Sync submitted order to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        if (submittedOrder) {
+          localStorage.setItem("tdc_active_order", JSON.stringify(submittedOrder));
+        } else {
+          localStorage.removeItem("tdc_active_order");
+        }
+      } catch {}
+    }
+  }, [submittedOrder]);
+
+  const handleStartNewOrder = () => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("tdc_active_order");
+      } catch {}
+    }
+    setSubmittedOrder(null);
+  };
 
   // Live carrier dispatch countdown (ticking live)
   const [dispatchSeconds, setDispatchSeconds] = useState(86400 + 14400 + 1800);
@@ -271,15 +341,16 @@ function CheckoutPage() {
     return "";
   }, [crypto, walletConfig, qrUrls]);
 
-  const copyAddress = async () => {
-    if (!activeWalletAddress) return;
+  const copyAddress = async (addr?: string) => {
+    const target = addr || activeWalletAddress;
+    if (!target) return;
     try {
-      await navigator.clipboard.writeText(activeWalletAddress);
+      await navigator.clipboard.writeText(target);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
       const el = document.createElement("textarea");
-      el.value = activeWalletAddress;
+      el.value = target;
       document.body.appendChild(el);
       el.select();
       document.execCommand("copy");
@@ -287,6 +358,30 @@ function CheckoutPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     }
+  };
+
+  const copyAmount = async (amountStr: string) => {
+    const cleanNum = amountStr.replace(/[^0-9.]/g, "");
+    if (!cleanNum) return;
+    try {
+      await navigator.clipboard.writeText(cleanNum);
+      setCopiedAmount(true);
+      setTimeout(() => setCopiedAmount(false), 2500);
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = cleanNum;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      setCopiedAmount(true);
+      setTimeout(() => setCopiedAmount(false), 2500);
+    }
+  };
+
+  const openWalletApp = (coinName: string, addr: string, cryptoVal: number) => {
+    const deepLink = getWalletDeepLink(coinName, addr, cryptoVal);
+    window.location.href = deepLink;
   };
 
   // Live Crypto Conversions for current drop and submitted order
@@ -314,6 +409,17 @@ function CheckoutPage() {
     const orderRef = Math.random().toString(36).substring(2, 9).toUpperCase();
     const notes = `Phone: ${phone || "N/A"} | Carrier Dispatch Reference: #${orderRef} | Crypto: ${crypto || "BTC"}`;
 
+    const orderObj = {
+      ref: orderRef,
+      drop: currentDrop,
+      fullName: fullName.trim(),
+      email: email.trim(),
+      address: formattedAddress,
+      crypto: crypto || "BTC",
+      fee: currentDrop.delivery_fee,
+      walletAddress: activeWalletAddress,
+    };
+
     try {
       await createOrder({
         drop_id: currentDrop.id,
@@ -329,36 +435,18 @@ function CheckoutPage() {
         notes,
       });
 
-      setSubmittedOrder({
-        ref: orderRef,
-        drop: currentDrop,
-        fullName: fullName.trim(),
-        email: email.trim(),
-        address: formattedAddress,
-        crypto: crypto || "BTC",
-        fee: currentDrop.delivery_fee,
-        walletAddress: activeWalletAddress,
-      });
+      setSubmittedOrder(orderObj);
     } catch (err) {
       console.warn("Order creation note:", err);
       // Still show confirmation state so user gets payment details and allocation reference
-      setSubmittedOrder({
-        ref: orderRef,
-        drop: currentDrop,
-        fullName: fullName.trim(),
-        email: email.trim(),
-        address: formattedAddress,
-        crypto: crypto || "BTC",
-        fee: currentDrop.delivery_fee,
-        walletAddress: activeWalletAddress,
-      });
+      setSubmittedOrder(orderObj);
     } finally {
       setSubmitting(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
-  if (loading && !currentDrop) {
+  if (loading && !currentDrop && !submittedOrder) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -369,7 +457,7 @@ function CheckoutPage() {
     );
   }
 
-  if (!currentDrop) {
+  if (!currentDrop && !submittedOrder) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center">
         <h1 className="text-2xl font-bold">No Vehicle Selected</h1>
@@ -413,7 +501,7 @@ function CheckoutPage() {
       <main className="mx-auto max-w-6xl px-4 sm:px-6 pt-8">
         {submittedOrder ? (
           <div className="space-y-12">
-            {/* ── ORDER CONFIRMED VIEW ──────────────────────────────── */}
+            {/* ── ORDER CONFIRMED VIEW (Persists across reloads & app switching) ── */}
             <div className="mx-auto max-w-2xl rounded-2xl border border-border bg-card p-6 sm:p-10 shadow-xl">
               <div className="flex flex-col items-center text-center">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500 mb-4">
@@ -449,7 +537,7 @@ function CheckoutPage() {
                 </div>
               </div>
 
-              {/* Payment Transfer Instructions with Live Crypto Amount */}
+              {/* 1-Device Easy Payment Transfer Box */}
               <div className="mt-6 rounded-xl border-2 border-foreground/20 bg-muted/30 p-5 sm:p-6 space-y-4">
                 <div className="flex items-center justify-between border-b border-border pb-3">
                   <div>
@@ -470,47 +558,105 @@ function CheckoutPage() {
                   </div>
                 </div>
 
+                {/* Single Device Friendly Tip Banner */}
+                <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
+                  <ShieldCheck size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>One-Device Mobile Tip:</strong> Cannot scan the QR code? Tap <strong>"Open in {submittedOrder.crypto} Wallet"</strong> below to automatically launch your wallet app with the address and amount pre-filled!
+                  </div>
+                </div>
+
                 {/* QR Code and Wallet address display */}
-                <div className="flex flex-col sm:flex-row items-center gap-5 pt-2">
+                <div className="flex flex-col sm:flex-row items-center gap-5 pt-1">
                   <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-white border border-border shadow-xs shrink-0">
                     {activeQrImage ? (
                       <img src={activeQrImage} alt="Payment QR code" className="h-32 w-32 object-contain" />
                     ) : (
                       <QrCode value={submittedOrder.walletAddress} size={128} />
                     )}
-                    <span className="text-[10px] font-bold text-black mt-1">Scan with {submittedOrder.crypto} Wallet</span>
+                    <span className="text-[10px] font-bold text-black mt-1">Scan or Tap Open Below</span>
                   </div>
 
-                  <div className="space-y-2 flex-1 w-full min-w-0">
-                    <label className="text-xs font-bold text-muted-foreground">
-                      Destination {submittedOrder.crypto} Address:
-                    </label>
-                    <div className="flex items-center gap-2">
+                  <div className="space-y-3 flex-1 w-full min-w-0">
+                    <div>
+                      <label className="text-xs font-bold text-muted-foreground block mb-1">
+                        Carrier Escrow {submittedOrder.crypto} Address:
+                      </label>
                       <Input
                         readOnly
                         value={submittedOrder.walletAddress}
                         className="font-mono text-xs bg-background h-10 select-all"
                       />
+                    </div>
+
+                    {/* 1-Click Action Buttons for Mobile Users */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <Button
+                        type="button"
+                        className="h-10 px-4 rounded-xl font-bold text-xs bg-foreground text-background hover:opacity-90 shadow-sm cursor-pointer"
+                        onClick={() =>
+                          openWalletApp(
+                            submittedOrder.crypto,
+                            submittedOrder.walletAddress,
+                            submittedCryptoCalc?.cryptoValue || 0
+                          )
+                        }
+                      >
+                        <ExternalLink size={14} className="mr-1.5" />
+                        Open in {submittedOrder.crypto} Wallet
+                      </Button>
+
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-10 px-3 shrink-0 rounded-lg font-bold"
-                        onClick={copyAddress}
+                        className="h-10 px-3 shrink-0 rounded-xl font-bold text-xs cursor-pointer"
+                        onClick={() => copyAddress(submittedOrder.walletAddress)}
                       >
-                        {copied ? <Check size={14} className="text-emerald-500 mr-1" /> : <Copy size={14} className="mr-1" />}
-                        {copied ? "Copied" : "Copy"}
+                        {copied ? <Check size={14} className="text-emerald-500 mr-1.5" /> : <Copy size={14} className="mr-1.5" />}
+                        {copied ? "Address Copied" : "Copy Address"}
                       </Button>
+
+                      {submittedCryptoCalc && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-10 px-3 shrink-0 rounded-xl font-bold text-xs cursor-pointer"
+                          onClick={() => copyAmount(submittedCryptoCalc.formatted)}
+                        >
+                          {copiedAmount ? <Check size={14} className="text-emerald-500 mr-1.5" /> : <Copy size={14} className="mr-1.5" />}
+                          {copiedAmount ? "Amount Copied" : `Copy Exact Amount (${submittedCryptoCalc.cryptoValue.toFixed(4)})`}
+                        </Button>
+                      )}
                     </div>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      {submittedCryptoCalc ? (
-                        <>Send exactly <strong>{submittedCryptoCalc.formatted}</strong> ({formatFeeDisplay(submittedOrder.fee)} USD) to secure the transport carrier slot.</>
-                      ) : (
-                        <>Send exact delivery fee to secure the transport carrier slot.</>
-                      )} Once confirmed, your carrier bill of lading and vehicle VIN tracking will be dispatched to <strong>{submittedOrder.email}</strong>.
-                    </p>
+
+                    {/* Quick App Universal Links */}
+                    <div className="flex items-center flex-wrap gap-2 pt-1 text-[11px] text-muted-foreground">
+                      <span>Quick Launch:</span>
+                      <a
+                        href={getMetaMaskDeepLink(submittedOrder.walletAddress, submittedCryptoCalc?.cryptoValue)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-border bg-card hover:bg-muted font-bold text-foreground text-[10px]"
+                      >
+                        <ExternalLink size={10} /> MetaMask
+                      </a>
+                      <a
+                        href={getTrustWalletDeepLink(submittedOrder.crypto, submittedOrder.walletAddress, submittedCryptoCalc?.cryptoValue)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-border bg-card hover:bg-muted font-bold text-foreground text-[10px]"
+                      >
+                        <ExternalLink size={10} /> Trust Wallet
+                      </a>
+                    </div>
                   </div>
                 </div>
+
+                <p className="text-[11px] text-muted-foreground leading-relaxed pt-2 border-t border-border/50">
+                  {submittedCryptoCalc ? (
+                    <>Send exactly <strong>{submittedCryptoCalc.formatted}</strong> ({formatFeeDisplay(submittedOrder.fee)} USD) to secure the transport carrier slot.</>
+                  ) : (
+                    <>Send exact delivery fee to secure the transport carrier slot.</>
+                  )} Once confirmed, your carrier bill of lading and vehicle VIN tracking will be dispatched to <strong>{submittedOrder.email}</strong>.
+                </p>
               </div>
 
               {/* Recipient and Address Summary */}
@@ -530,11 +676,21 @@ function CheckoutPage() {
               </div>
 
               <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-border no-print">
-                <Link to="/" className="w-full sm:w-auto">
-                  <Button variant="outline" className="w-full rounded-full font-bold h-11">
-                    ← Back to Tesla Fleet
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Link to="/" className="w-full sm:w-auto">
+                    <Button variant="outline" className="w-full rounded-full font-bold h-11">
+                      ← Back to Tesla Fleet
+                    </Button>
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground hover:text-foreground h-11"
+                    onClick={handleStartNewOrder}
+                  >
+                    <RotateCcw size={13} className="mr-1" /> New Claim
                   </Button>
-                </Link>
+                </div>
                 <Button
                   className="w-full sm:w-auto rounded-full font-bold h-11 px-8 shadow-md cursor-pointer"
                   onClick={() => setShowSlipModal(true)}
@@ -604,7 +760,7 @@ function CheckoutPage() {
               <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
                 {/* Vehicle Image Frame */}
                 <div className="relative aspect-[16/10] bg-muted overflow-hidden">
-                  {currentDrop.image_url ? (
+                  {currentDrop?.image_url ? (
                     <img
                       src={currentDrop.image_url}
                       alt={currentDrop.name}
@@ -616,12 +772,12 @@ function CheckoutPage() {
                     </div>
                   )}
                   <span className={`absolute top-3 left-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider ${
-                    currentDrop.kind === "giveaway"
+                    currentDrop?.kind === "giveaway"
                       ? "bg-foreground text-background shadow-md"
                       : "bg-emerald-600 text-white shadow-md"
                   }`}>
-                    {currentDrop.kind === "giveaway" ? <Gift size={12} /> : <Zap size={12} />}
-                    {currentDrop.kind === "giveaway" ? "Free Promotional Giveaway" : "Immediate Allocation"}
+                    {currentDrop?.kind === "giveaway" ? <Gift size={12} /> : <Zap size={12} />}
+                    {currentDrop?.kind === "giveaway" ? "Free Promotional Giveaway" : "Immediate Allocation"}
                   </span>
                 </div>
 
@@ -629,13 +785,13 @@ function CheckoutPage() {
                 <div className="p-5 sm:p-6 space-y-4">
                   <div>
                     <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
-                      {currentDrop.category}
+                      {currentDrop?.category}
                     </span>
                     <h2 className="font-serif text-2xl font-bold text-foreground mt-0.5">
-                      {currentDrop.name}
+                      {currentDrop?.name}
                     </h2>
                     <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                      {currentDrop.description}
+                      {currentDrop?.description}
                     </p>
                   </div>
 
@@ -644,16 +800,16 @@ function CheckoutPage() {
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">MSRP / Prize Value:</span>
                       <span className="font-bold line-through text-muted-foreground">
-                        {formatDisplayPrice(currentDrop.prize_value)}
+                        {formatDisplayPrice(currentDrop?.prize_value)}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">
-                        {currentDrop.kind === "giveaway" ? "Vehicle Promotional Price:" : "Direct Purchase Price:"}
+                        {currentDrop?.kind === "giveaway" ? "Vehicle Promotional Price:" : "Direct Purchase Price:"}
                       </span>
                       <span className="font-bold text-foreground">
-                        {currentDrop.kind === "giveaway" ? "FREE ($0.00)" : formatDisplayPrice(currentDrop.amount)}
+                        {currentDrop?.kind === "giveaway" ? "FREE ($0.00)" : formatDisplayPrice(currentDrop?.amount)}
                       </span>
                     </div>
 
@@ -661,7 +817,7 @@ function CheckoutPage() {
                       <span className="font-bold text-foreground">Transport & Carrier Fee:</span>
                       <div className="text-right">
                         <span className="font-mono text-sm font-black text-foreground block">
-                          {formatFeeDisplay(currentDrop.delivery_fee)}
+                          {formatFeeDisplay(currentDrop?.delivery_fee)}
                         </span>
                         <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block">
                           ≈ {currentCryptoCalc.formatted}
@@ -671,7 +827,7 @@ function CheckoutPage() {
 
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                       <span>Delivery Timeframe:</span>
-                      <span className="font-semibold text-foreground">{currentDrop.delivery_time}</span>
+                      <span className="font-semibold text-foreground">{currentDrop?.delivery_time}</span>
                     </div>
                   </div>
 
@@ -681,7 +837,7 @@ function CheckoutPage() {
                       Select Another Tesla Model:
                     </label>
                     <select
-                      value={currentDrop.id}
+                      value={currentDrop?.id}
                       onChange={(e) => {
                         setSelectedDropId(e.target.value);
                       }}
@@ -874,7 +1030,7 @@ function CheckoutPage() {
                     </div>
                     <div className="text-right">
                       <span className="font-mono text-xs font-bold bg-muted px-2.5 py-1 rounded-full block">
-                        {formatFeeDisplay(currentDrop.delivery_fee)}
+                        {formatFeeDisplay(currentDrop?.delivery_fee)}
                       </span>
                     </div>
                   </div>
@@ -882,7 +1038,7 @@ function CheckoutPage() {
                   {walletConfig && walletConfig.accepted_coins && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                       {walletConfig.accepted_coins.map((coin) => {
-                        const coinCalc = calculateCryptoAmount(currentDrop.delivery_fee, coin, cryptoRates);
+                        const coinCalc = calculateCryptoAmount(currentDrop?.delivery_fee, coin, cryptoRates);
                         return (
                           <button
                             key={coin}
@@ -911,7 +1067,7 @@ function CheckoutPage() {
                     </div>
                   )}
 
-                  {/* Immediate Wallet Address & QR Preview Box with Live Amount */}
+                  {/* Immediate Wallet Address & QR Preview Box with Live Amount & 1-Click Launch */}
                   <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-foreground">
@@ -919,7 +1075,7 @@ function CheckoutPage() {
                       </span>
                       <button
                         type="button"
-                        onClick={copyAddress}
+                        onClick={() => copyAddress()}
                         className="inline-flex items-center gap-1 text-[11px] font-bold text-foreground hover:underline cursor-pointer"
                       >
                         {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
@@ -935,15 +1091,32 @@ function CheckoutPage() {
                           <QrCode value={activeWalletAddress} size={96} />
                         )}
                       </div>
-                      <div className="space-y-1.5 flex-1 min-w-0 w-full">
+                      <div className="space-y-2 flex-1 min-w-0 w-full">
                         <Input
                           readOnly
                           value={activeWalletAddress}
                           className="font-mono text-xs bg-background h-10 select-all"
                         />
-                        <p className="text-[10px] text-muted-foreground leading-normal">
-                          Send exactly <strong className="text-foreground">{currentCryptoCalc.formatted}</strong> ({formatFeeDisplay(currentDrop.delivery_fee)} USD) in {crypto} to reserve carrier transport scheduling.
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 rounded-lg font-bold text-[11px] cursor-pointer"
+                            onClick={() => openWalletApp(crypto, activeWalletAddress, currentCryptoCalc.cryptoValue)}
+                          >
+                            <ExternalLink size={12} className="mr-1" /> Open in {crypto} App
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 rounded-lg font-bold text-[11px] cursor-pointer"
+                            onClick={() => copyAmount(currentCryptoCalc.formatted)}
+                          >
+                            {copiedAmount ? <Check size={12} className="text-emerald-500 mr-1" /> : <Copy size={12} className="mr-1" />}
+                            {copiedAmount ? "Amount Copied" : "Copy Amount"}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -963,9 +1136,9 @@ function CheckoutPage() {
                       </>
                     ) : (
                       <>
-                        {currentDrop.kind === "giveaway"
-                          ? `Confirm Claim & Reserve Spot · ${formatFeeDisplay(currentDrop.delivery_fee)} (${currentCryptoCalc.formatted})`
-                          : `Confirm Purchase & Reserve Spot · ${formatFeeDisplay(currentDrop.delivery_fee)} (${currentCryptoCalc.formatted})`}
+                        {currentDrop?.kind === "giveaway"
+                          ? `Confirm Claim & Reserve Spot · ${formatFeeDisplay(currentDrop?.delivery_fee)} (${currentCryptoCalc.formatted})`
+                          : `Confirm Purchase & Reserve Spot · ${formatFeeDisplay(currentDrop?.delivery_fee)} (${currentCryptoCalc.formatted})`}
                         <ArrowRight size={16} className="ml-2" />
                       </>
                     )}

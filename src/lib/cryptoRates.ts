@@ -119,3 +119,47 @@ export function calculateCryptoAmount(
     fullDisplay: `${formatted} (≈ $${new Intl.NumberFormat("en-US").format(numUSD)} USD)`,
   };
 }
+
+/**
+ * Generate standard mobile crypto URI schemes & deep links
+ */
+export function getWalletDeepLink(coin: string, address: string, amount?: number | string): string {
+  const c = (coin || "").toUpperCase().trim();
+  const amt = typeof amount === "number" ? amount : parseFloat(String(amount || "0")) || 0;
+  const cleanAddr = (address || "").trim();
+
+  if (c === "BTC" || c === "BITCOIN") {
+    return amt > 0 ? `bitcoin:${cleanAddr}?amount=${amt}` : `bitcoin:${cleanAddr}`;
+  }
+  if (c === "ETH" || c === "ETHEREUM") {
+    return amt > 0 ? `ethereum:${cleanAddr}?value=${amt}` : `ethereum:${cleanAddr}`;
+  }
+  if (c === "SOL" || c === "SOLANA") {
+    return amt > 0 ? `solana:${cleanAddr}?amount=${amt}` : `solana:${cleanAddr}`;
+  }
+  if (c === "USDT" || c === "USDC") {
+    return amt > 0 ? `ethereum:${cleanAddr}?value=${amt}` : `ethereum:${cleanAddr}`;
+  }
+  return `ethereum:${cleanAddr}`;
+}
+
+export function getMetaMaskDeepLink(address: string, amount?: number | string): string {
+  const amt = typeof amount === "number" ? amount : parseFloat(String(amount || "0")) || 0;
+  const cleanAddr = (address || "").trim();
+  return amt > 0
+    ? `https://metamask.app.link/send/pay-${cleanAddr}@1?value=${amt}`
+    : `https://metamask.app.link/send/pay-${cleanAddr}@1`;
+}
+
+export function getTrustWalletDeepLink(coin: string, address: string, amount?: number | string): string {
+  const c = (coin || "").toUpperCase().trim();
+  const amt = typeof amount === "number" ? amount : parseFloat(String(amount || "0")) || 0;
+  const cleanAddr = (address || "").trim();
+  let asset = "c60";
+  if (c === "BTC") asset = "c0";
+  else if (c === "SOL") asset = "c501";
+
+  return amt > 0
+    ? `https://link.trustwallet.com/send?asset=${asset}&address=${cleanAddr}&amount=${amt}`
+    : `https://link.trustwallet.com/send?asset=${asset}&address=${cleanAddr}`;
+}
