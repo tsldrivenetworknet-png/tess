@@ -579,21 +579,48 @@ export function CheckoutPage() {
 
                   <div className="space-y-3 flex-1 w-full min-w-0">
                     <div>
-                      <label className="text-xs font-bold text-muted-foreground block mb-1">
-                        Carrier Escrow {submittedOrder.crypto} Address:
+                      <label className="text-xs font-bold text-foreground block mb-1.5 flex items-center justify-between">
+                        <span>Carrier Escrow {submittedOrder.crypto} Address:</span>
+                        <span className="text-[10px] text-muted-foreground font-normal">Click or tap below to copy</span>
                       </label>
                       <Input
                         readOnly
                         value={submittedOrder.walletAddress}
-                        className="font-mono text-xs bg-background h-10 select-all"
+                        className="font-mono text-xs sm:text-sm bg-background h-11 select-all border border-border"
                       />
+
+                      {/* VERY BIG PROMINENT COPY ADDRESS BUTTON BELOW ADDRESS */}
+                      <div className="mt-2.5">
+                        <Button
+                          type="button"
+                          className={`w-full h-13 sm:h-14 rounded-xl text-sm sm:text-base font-extrabold shadow-md cursor-pointer transition-all flex items-center justify-center gap-2.5 ${
+                            copied
+                              ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                              : "bg-foreground hover:bg-foreground/90 text-background"
+                          }`}
+                          onClick={() => copyAddress(submittedOrder.walletAddress)}
+                        >
+                          {copied ? (
+                            <>
+                              <Check size={20} className="stroke-[3]" />
+                              <span>WALLET ADDRESS COPIED TO CLIPBOARD!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={20} className="stroke-[2.5]" />
+                              <span>COPY {submittedOrder.crypto} WALLET ADDRESS</span>
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </div>
 
-                    {/* 1-Click Action Buttons for Mobile Users */}
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {/* Secondary Action Buttons (1-Click Open & Copy Amount) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                       <Button
                         type="button"
-                        className="h-10 px-4 rounded-xl font-bold text-xs bg-foreground text-background hover:opacity-90 shadow-sm cursor-pointer"
+                        variant="outline"
+                        className="h-11 px-4 rounded-xl font-bold text-xs bg-card hover:bg-muted border border-border shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                         onClick={() =>
                           openWalletApp(
                             submittedOrder.crypto,
@@ -602,31 +629,19 @@ export function CheckoutPage() {
                           )
                         }
                       >
-                        <ExternalLink size={14} className="mr-1.5" />
-                        Open in {submittedOrder.crypto} Wallet
-                      </Button>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-10 px-3 shrink-0 rounded-xl font-bold text-xs cursor-pointer"
-                        onClick={() => copyAddress(submittedOrder.walletAddress)}
-                      >
-                        {copied ? <Check size={14} className="text-emerald-500 mr-1.5" /> : <Copy size={14} className="mr-1.5" />}
-                        {copied ? "Address Copied" : "Copy Address"}
+                        <ExternalLink size={15} />
+                        <span>Open in {submittedOrder.crypto} Wallet App</span>
                       </Button>
 
                       {submittedCryptoCalc && (
                         <Button
                           type="button"
                           variant="outline"
-                          size="sm"
-                          className="h-10 px-3 shrink-0 rounded-xl font-bold text-xs cursor-pointer"
+                          className="h-11 px-4 rounded-xl font-bold text-xs bg-card hover:bg-muted border border-border shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                           onClick={() => copyAmount(submittedCryptoCalc.formatted)}
                         >
-                          {copiedAmount ? <Check size={14} className="text-emerald-500 mr-1.5" /> : <Copy size={14} className="mr-1.5" />}
-                          {copiedAmount ? "Amount Copied" : `Copy Exact Amount (${submittedCryptoCalc.cryptoValue.toFixed(4)})`}
+                          {copiedAmount ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
+                          <span>{copiedAmount ? "Amount Copied!" : `Copy Amount (${submittedCryptoCalc.cryptoValue.toFixed(4)} ${submittedOrder.crypto})`}</span>
                         </Button>
                       )}
                     </div>
@@ -1069,53 +1084,78 @@ export function CheckoutPage() {
                   )}
 
                   {/* Immediate Wallet Address & QR Preview Box with Live Amount & 1-Click Launch */}
-                  <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-3">
+                  <div className="rounded-xl border-2 border-border bg-card p-4 sm:p-5 space-y-4 shadow-sm">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-foreground">
+                      <span className="text-xs font-bold text-foreground uppercase tracking-wider">
                         Designated {crypto} Escrow Address
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => copyAddress()}
-                        className="inline-flex items-center gap-1 text-[11px] font-bold text-foreground hover:underline cursor-pointer"
-                      >
-                        {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                        {copied ? "Copied!" : "Copy Address"}
-                      </button>
+                      <span className="text-[11px] text-muted-foreground">Carrier transport escrow</span>
                     </div>
 
                     <div className="flex flex-col sm:flex-row items-center gap-4">
-                      <div className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-border shrink-0 shadow-2xs">
+                      <div className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-white border border-border shrink-0 shadow-2xs">
                         {activeQrImage ? (
-                          <img src={activeQrImage} alt="Payment QR code" className="h-24 w-24 object-contain" />
+                          <img src={activeQrImage} alt="Payment QR code" className="h-28 w-28 object-contain" />
                         ) : (
-                          <QrCode value={activeWalletAddress} size={96} />
+                          <QrCode value={activeWalletAddress} size={112} />
                         )}
+                        <span className="text-[9px] font-bold text-black mt-1 uppercase">Scan QR</span>
                       </div>
-                      <div className="space-y-2 flex-1 min-w-0 w-full">
-                        <Input
-                          readOnly
-                          value={activeWalletAddress}
-                          className="font-mono text-xs bg-background h-10 select-all"
-                        />
-                        <div className="flex flex-wrap items-center gap-2">
+                      <div className="space-y-3 flex-1 min-w-0 w-full">
+                        <div>
+                          <label className="text-[11px] font-bold text-foreground block mb-1">
+                            {crypto} Wallet Address (Click to select):
+                          </label>
+                          <Input
+                            readOnly
+                            value={activeWalletAddress}
+                            className="font-mono text-xs sm:text-sm bg-background h-11 select-all border border-border"
+                          />
+                        </div>
+
+                        {/* VERY BIG PROMINENT COPY ADDRESS BUTTON BELOW ADDRESS */}
+                        <Button
+                          type="button"
+                          className={`w-full h-12 rounded-xl text-sm font-extrabold shadow-sm cursor-pointer transition-all flex items-center justify-center gap-2 ${
+                            copied
+                              ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                              : "bg-foreground hover:bg-foreground/90 text-background"
+                          }`}
+                          onClick={() => copyAddress()}
+                        >
+                          {copied ? (
+                            <>
+                              <Check size={18} className="stroke-[3]" />
+                              <span>WALLET ADDRESS COPIED TO CLIPBOARD!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={18} className="stroke-[2.5]" />
+                              <span>COPY {crypto} ADDRESS</span>
+                            </>
+                          )}
+                        </Button>
+
+                        {/* Secondary action buttons */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <Button
                             type="button"
+                            variant="outline"
                             size="sm"
-                            className="h-8 rounded-lg font-bold text-[11px] cursor-pointer"
+                            className="h-10 rounded-xl font-bold text-xs cursor-pointer flex items-center justify-center gap-1.5"
                             onClick={() => openWalletApp(crypto, activeWalletAddress, currentCryptoCalc.cryptoValue)}
                           >
-                            <ExternalLink size={12} className="mr-1" /> Open in {crypto} App
+                            <ExternalLink size={13} /> Open in {crypto} App
                           </Button>
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 rounded-lg font-bold text-[11px] cursor-pointer"
+                            className="h-10 rounded-xl font-bold text-xs cursor-pointer flex items-center justify-center gap-1.5"
                             onClick={() => copyAmount(currentCryptoCalc.formatted)}
                           >
-                            {copiedAmount ? <Check size={12} className="text-emerald-500 mr-1" /> : <Copy size={12} className="mr-1" />}
-                            {copiedAmount ? "Amount Copied" : "Copy Amount"}
+                            {copiedAmount ? <Check size={13} className="text-emerald-500 mr-1" /> : <Copy size={13} className="mr-1" />}
+                            <span>{copiedAmount ? "Amount Copied" : "Copy Crypto Amount"}</span>
                           </Button>
                         </div>
                       </div>
@@ -1128,19 +1168,27 @@ export function CheckoutPage() {
                   <Button
                     type="submit"
                     disabled={submitting}
-                    className="w-full rounded-full font-bold text-sm h-12 shadow-lg cursor-pointer"
+                    className="w-full min-h-[58px] h-auto py-3.5 px-6 rounded-2xl sm:rounded-full font-bold whitespace-normal text-center shadow-xl cursor-pointer bg-foreground text-background hover:opacity-90 transition-all flex flex-col items-center justify-center leading-snug"
                   >
                     {submitting ? (
-                      <>
-                        <Loader2 size={16} className="animate-spin mr-2" />
-                        Securing Tesla Allocation...
-                      </>
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 size={18} className="animate-spin shrink-0" />
+                        <span>Securing Tesla Allocation...</span>
+                      </div>
                     ) : (
                       <>
-                        {currentDrop?.kind === "giveaway"
-                          ? `Confirm Claim & Reserve Spot · ${formatFeeDisplay(currentDrop?.delivery_fee)} (${currentCryptoCalc.formatted})`
-                          : `Confirm Purchase & Reserve Spot · ${formatFeeDisplay(currentDrop?.delivery_fee)} (${currentCryptoCalc.formatted})`}
-                        <ArrowRight size={16} className="ml-2" />
+                        <div className="flex items-center justify-center gap-2 w-full text-center">
+                          <span className="font-extrabold text-base sm:text-lg tracking-tight">
+                            {currentDrop?.kind === "giveaway"
+                              ? "Claim and Reserve Your Spot"
+                              : "Confirm Purchase & Reserve Spot"}
+                          </span>
+                          <ArrowRight size={18} className="shrink-0" />
+                        </div>
+                        <span className="text-xs font-semibold opacity-85 mt-0.5">
+                          Carrier Delivery Fee: {formatFeeDisplay(currentDrop?.delivery_fee)}
+                          {currentCryptoCalc?.formatted ? ` · ≈ ${currentCryptoCalc.formatted}` : ""}
+                        </span>
                       </>
                     )}
                   </Button>
