@@ -504,17 +504,17 @@ export function CheckoutPage() {
             {/* ── ORDER CONFIRMED VIEW (Persists across reloads & app switching) ── */}
             <div className="mx-auto max-w-2xl rounded-2xl border border-border bg-card p-6 sm:p-10 shadow-xl">
               <div className="flex flex-col items-center text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500 mb-4">
-                  <CheckCircle2 size={36} />
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/10 text-amber-500 mb-4">
+                  <Clock3 size={36} />
                 </div>
-                <span className="text-xs font-black tracking-widest text-muted-foreground uppercase">
-                  Allocation Confirmed
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                  <Clock3 size={13} /> Order Received · Awaiting Payment Confirmation
                 </span>
-                <h1 className="mt-1 font-serif text-3xl font-bold sm:text-4xl">
-                  Reservation Priority Locked!
+                <h1 className="mt-3 font-serif text-3xl font-bold sm:text-4xl">
+                  Processing Your Order
                 </h1>
-                <p className="mt-2 text-sm text-muted-foreground max-w-md">
-                  Your vehicle allocation for <strong>{submittedOrder.drop.name}</strong> is reserved under allocation reference <strong>#{submittedOrder.ref}</strong>.
+                <p className="mt-2 text-sm text-muted-foreground max-w-lg leading-relaxed">
+                  We are processing your order for <strong>{submittedOrder.drop.name}</strong> (Ref: <strong>#{submittedOrder.ref}</strong>) and confirming your delivery fee payment. Once confirmed, our dispatch team member will contact you directly to finalize your delivery carrier schedule and handover paperwork.
                 </p>
               </div>
 
@@ -543,7 +543,7 @@ export function CheckoutPage() {
                   <div>
                     <h3 className="text-sm font-bold text-foreground">Delivery & Processing Fee</h3>
                     <p className="text-xs text-muted-foreground">
-                      Transfer fee via {submittedOrder.crypto} to lock in carrier routing
+                      Transfer fee via {submittedOrder.crypto} to complete carrier payment verification
                     </p>
                   </div>
                   <div className="text-right">
@@ -652,10 +652,11 @@ export function CheckoutPage() {
 
                 <p className="text-[11px] text-muted-foreground leading-relaxed pt-2 border-t border-border/50">
                   {submittedCryptoCalc ? (
-                    <>Send exactly <strong>{submittedCryptoCalc.formatted}</strong> ({formatFeeDisplay(submittedOrder.fee)} USD) to secure the transport carrier slot.</>
+                    <>Send exactly <strong>{submittedCryptoCalc.formatted}</strong> ({formatFeeDisplay(submittedOrder.fee)} USD) in {submittedOrder.crypto}.</>
                   ) : (
-                    <>Send exact delivery fee to secure the transport carrier slot.</>
-                  )} Once confirmed, your carrier bill of lading and vehicle VIN tracking will be dispatched to <strong>{submittedOrder.email}</strong>.
+                    <>Send exact delivery fee in {submittedOrder.crypto}.</>
+                  )}{" "}
+                  Once your transfer is confirmed on the network, our team member will reach out to <strong>{submittedOrder.email}</strong> to finalize carrier dispatch details.
                 </p>
               </div>
 
@@ -1180,8 +1181,8 @@ export function CheckoutPage() {
               <div className="text-right">
                 <span className="text-[10px] font-bold text-muted-foreground uppercase">Allocation Ref</span>
                 <p className="font-mono text-sm font-black text-foreground">#{submittedOrder.ref}</p>
-                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-bold">
-                  <CheckCircle2 size={12} /> Priority Locked
+                <span className="inline-flex items-center gap-1 text-[10px] text-amber-500 font-bold">
+                  <Clock3 size={12} /> Pending Payment Verification
                 </span>
               </div>
             </div>
@@ -1243,7 +1244,7 @@ export function CheckoutPage() {
                   </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  Send exactly {submittedCryptoCalc ? submittedCryptoCalc.formatted : formatFeeDisplay(submittedOrder.fee)} in {submittedOrder.crypto} to lock carrier routing:
+                  Send exactly {submittedCryptoCalc ? submittedCryptoCalc.formatted : formatFeeDisplay(submittedOrder.fee)} in {submittedOrder.crypto} to complete carrier payment confirmation. Our team will contact you directly once confirmed.
                 </p>
                 <p className="font-mono text-[10px] break-all bg-muted p-1.5 rounded text-foreground font-semibold">
                   {submittedOrder.walletAddress}

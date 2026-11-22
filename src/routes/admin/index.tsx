@@ -304,24 +304,41 @@ function AdminPanel() {
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
-        <div className="admin-brand flex items-center gap-2">
-          {siteConfig?.icon_url ? (
-            <img src={siteConfig.icon_url} alt="Logo" className="h-6 w-6 rounded object-contain" />
-          ) : (
-            <span className="brand-symbol"><Zap size={15} fill="currentColor" /></span>
-          )}
-          <span className="text-sm font-black truncate">{siteConfig?.site_name || "Admin"}</span>
+        <div className="admin-brand-bar">
+          <div className="admin-brand">
+            {siteConfig?.icon_url ? (
+              <img src={siteConfig.icon_url} alt="Logo" className="h-6 w-6 rounded object-contain shrink-0" />
+            ) : (
+              <span className="brand-symbol"><Zap size={15} fill="currentColor" /></span>
+            )}
+            <span className="text-sm font-black truncate">{siteConfig?.site_name || "Admin"}</span>
+          </div>
+          <div className="admin-mobile-actions">
+            <Link to="/" className="inline-flex items-center gap-1 text-[11px] font-bold text-muted-foreground hover:text-foreground px-2.5 py-1 rounded-md bg-muted">
+              <ExternalLink size={12} /> Store
+            </Link>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-[11px] font-bold text-destructive hover:bg-destructive/10 px-2 py-1 rounded-md cursor-pointer"
+              onClick={handleLogout}
+              title="Lock & Sign out"
+            >
+              <LogOut size={13} />
+            </button>
+          </div>
         </div>
+
         <nav className="admin-nav">
           {navItems.map((item) => (
             <button key={item.id} type="button"
               className={`admin-nav-item ${section === item.id ? "active" : ""}`}
               onClick={() => setSection(item.id)}>
-              {item.icon}{item.label}
-              {section === item.id && <ChevronRight size={12} className="ml-auto" />}
+              {item.icon}<span>{item.label}</span>
+              {section === item.id && <ChevronRight size={12} className="ml-auto hidden md:block" />}
             </button>
           ))}
         </nav>
+
         <div className="admin-sidebar-footer flex flex-col gap-1">
           <Link to="/" className="admin-nav-item text-muted-foreground">
             <ExternalLink size={14} /> View storefront
@@ -335,10 +352,19 @@ function AdminPanel() {
           </button>
         </div>
       </aside>
+
       <main className="admin-main">
         <div className="admin-topbar">
-          <h1 className="admin-page-title">{navItems.find((n) => n.id === section)?.label}</h1>
-          <SaveBar saving={saving} saved={saved} />
+          <div className="flex items-center gap-2">
+            <h1 className="admin-page-title">{navItems.find((n) => n.id === section)?.label}</h1>
+            <span className="hidden sm:inline-block h-2 w-2 rounded-full bg-emerald-500" title="Connected" />
+          </div>
+          <div className="flex items-center gap-3">
+            <SaveBar saving={saving} saved={saved} />
+            <Link to="/" className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground">
+              <ExternalLink size={13} /> View Site
+            </Link>
+          </div>
         </div>
         <div className="admin-content">
           {section === "dashboard" && <DashboardSection setSection={setSection} />}
