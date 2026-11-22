@@ -263,3 +263,86 @@ export async function updateOrderStatus(
     .eq("id", id);
   if (error) throw error;
 }
+
+// ── Testimonials ──────────────────────────────────────────────
+
+export type DbTestimonial = {
+  id: string;
+  name: string;
+  location: string;
+  vehicle_model: string;
+  quote: string;
+  image_url?: string;
+  rating?: number;
+  created_at?: string;
+};
+
+export const DEFAULT_TESTIMONIALS: DbTestimonial[] = [
+  {
+    id: "t1",
+    name: "Marcus Vance",
+    location: "Austin, Texas",
+    vehicle_model: "Tesla Cybertruck (Cyberbeast Matte Black)",
+    quote: "Secured my allocation spot and received enclosed white-glove transport right to my driveway. Vehicle arrived in pristine factory condition. Simply incredible!",
+    rating: 5,
+    image_url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+    created_at: "2026-11-20T10:00:00Z",
+  },
+  {
+    id: "t2",
+    name: "Elena Rostova",
+    location: "Miami, Florida",
+    vehicle_model: "Tesla Model S Plaid (Ultra Red)",
+    quote: "I thought it was too good to be true until the dispatch carrier called with the bill of lading. Delivery fee paid via BTC, transport was right on schedule.",
+    rating: 5,
+    image_url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
+    created_at: "2026-11-19T14:30:00Z",
+  },
+  {
+    id: "t3",
+    name: "David K. Campbell",
+    location: "London, United Kingdom",
+    vehicle_model: "Tesla Roadster 2.0 (Glitter Gold Edition)",
+    quote: "Allocation verified, locked in my priority transport and the carrier updates via email kept me informed every step of the journey. 10/10 service.",
+    rating: 5,
+    image_url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80",
+    created_at: "2026-11-18T09:15:00Z",
+  },
+  {
+    id: "t4",
+    name: "Sophia Martinez",
+    location: "Toronto, Canada",
+    vehicle_model: "Tesla Model X Plaid SUV (Pearl White)",
+    quote: "Carrier arrived with enclosed auto-transport trailer. Flawless handover and delivery paperwork. Couldn't be happier with this allocation experience!",
+    rating: 5,
+    image_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+    created_at: "2026-11-17T16:45:00Z",
+  },
+];
+
+export async function fetchTestimonials(): Promise<DbTestimonial[]> {
+  try {
+    const { data, error } = await supabase
+      .from("testimonials")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error || !data || data.length === 0) {
+      return DEFAULT_TESTIMONIALS;
+    }
+    return data as DbTestimonial[];
+  } catch {
+    return DEFAULT_TESTIMONIALS;
+  }
+}
+
+export async function createTestimonial(
+  testimonial: Omit<DbTestimonial, "id" | "created_at">,
+): Promise<void> {
+  const { error } = await supabase.from("testimonials").insert(testimonial);
+  if (error) throw error;
+}
+
+export async function deleteTestimonial(id: string): Promise<void> {
+  const { error } = await supabase.from("testimonials").delete().eq("id", id);
+  if (error) throw error;
+}

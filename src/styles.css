@@ -362,8 +362,9 @@
   .top-countdown-bar {
     position: relative;
     z-index: 40;
-    background: linear-gradient(90deg, #090d14 0%, #16202e 50%, #090d14 100%);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+    background: linear-gradient(90deg, #b91c1c 0%, #dc2626 50%, #991b1b 100%);
+    border-bottom: 2px solid #ef4444;
+    box-shadow: 0 4px 18px rgba(220, 38, 38, 0.35);
     color: #fff;
     padding: 10px 18px;
   }
@@ -385,15 +386,15 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 50%, #94a3b8 100%);
-    color: #0b0f17;
+    background: #ffffff;
+    color: #b91c1c;
     font-weight: 900;
     font-size: 11px;
     padding: 4px 11px;
     border-radius: 999px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border: 1px solid rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.9);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   }
   .top-countdown-text {
@@ -413,8 +414,8 @@
     justify-content: center;
     min-width: 48px;
     padding: 4px 7px;
-    background: rgba(0, 0, 0, 0.65);
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.35);
     border-radius: 6px;
     backdrop-filter: blur(8px);
   }
@@ -429,24 +430,28 @@
     font-size: 8px;
     font-weight: 800;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.8);
+    color: rgba(255, 255, 255, 0.9);
     margin-top: 2px;
   }
   .top-countdown-sep {
     font-size: 16px;
     font-weight: 900;
-    color: #e2e8f0;
+    color: #ffffff;
   }
   .top-countdown-cta {
-    background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 45%, #cbd5e1 80%, #94a3b8 100%) !important;
-    color: #090d16 !important;
+    background: #ffffff !important;
+    color: #b91c1c !important;
     font-weight: 900 !important;
     font-size: 12px !important;
     height: 34px !important;
     padding-inline: 16px !important;
     border-radius: 999px !important;
-    border: 1px solid rgba(255, 255, 255, 0.8) !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
+    border: 1px solid #ffffff !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25) !important;
+  }
+  .top-countdown-cta:hover {
+    background: #fef2f2 !important;
+    color: #991b1b !important;
   }
   .crypto-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
   .crypto-option { display: flex; min-height: 56px; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--foreground); cursor: pointer; font-size: 10px; font-weight: 800; }
@@ -660,3 +665,29 @@
 
   /* Hero image placeholder when no image is set */
   .hero-image-placeholder { width: 100%; height: 100%; background: linear-gradient(135deg, oklch(0.45 0.18 27) 0%, oklch(0.35 0.14 27) 100%); }
+
+  /* Print optimization for 1-page allocation slips */
+  @media print {
+    body, html {
+      background: #ffffff !important;
+      color: #000000 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    header, nav, button, .no-print, .site-header, .top-countdown-bar, .testimonials-section, .dialog-backdrop, footer {
+      display: none !important;
+    }
+    .print-clean-slip {
+      display: block !important;
+      width: 100% !important;
+      max-width: 760px !important;
+      margin: 0 auto !important;
+      padding: 16px !important;
+      border: 2px solid #0f172a !important;
+      background: #ffffff !important;
+      color: #0f172a !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      border-radius: 12px !important;
+    }
+  }

@@ -4,7 +4,7 @@ import {
   AlertCircle, ArrowLeft, ArrowLeftRight, Bell, Check, CheckCircle2, ChevronRight,
   Copy, Edit2, ExternalLink, Eye, EyeOff, Gift, ImagePlus,
   LayoutDashboard, Loader2, Lock, LogOut, Package, Plus, Settings,
-  ShoppingBag, Trash2, Users, Wallet, X, Zap,
+  ShoppingBag, Star, Trash2, Users, Wallet, X, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,8 @@ import {
   fetchWalletConfig, saveWalletConfig,
   fetchOrders, updateOrderStatus,
   uploadImage, fetchWalletQrUrls, uploadWalletQr,
-  type DbSiteConfig, type DbDrop, type DbWalletConfig, type DbOrder,
+  fetchTestimonials, createTestimonial, deleteTestimonial,
+  type DbSiteConfig, type DbDrop, type DbWalletConfig, type DbOrder, type DbTestimonial,
 } from "@/lib/supabase";
 import {
   getExtendedContent,
@@ -125,7 +126,7 @@ function AdminPageWithAuth() {
   return <AdminPanel />;
 }
 
-type AdminSection = "dashboard" | "site" | "drops" | "wallet" | "orders" | "alerts";
+type AdminSection = "dashboard" | "site" | "drops" | "wallet" | "orders" | "alerts" | "testimonials";
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((res, rej) => {
@@ -266,8 +267,24 @@ function AdminPanel() {
   const [section, setSection] = useState<AdminSection>("dashboard");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [siteConfig, setSiteConfig] = useState<DbSiteConfig | null>(null);
 
   const markSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
+
+  useEffect(() => {
+    fetchSiteConfig().then((cfg) => {
+      setSiteConfig(cfg);
+      if (cfg?.icon_url) {
+        let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+        if (!link) {
+          link = document.createElement("link");
+          link.rel = "icon";
+          document.head.appendChild(link);
+        }
+        link.href = cfg.icon_url;
+      }
+    }).catch(() => {});
+  }, []);
 
   const navItems: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={15} /> },
@@ -276,6 +293,7 @@ function AdminPanel() {
     { id: "wallet", label: "Crypto Wallets", icon: <Wallet size={15} /> },
     { id: "orders", label: "Orders & Claims", icon: <Users size={15} /> },
     { id: "alerts", label: "Live Claim Alerts", icon: <Bell size={15} /> },
+    { id: "testimonials", label: "Testimonials", icon: <Star size={15} /> },
   ];
 
   const handleLogout = () => {
@@ -286,9 +304,13 @@ function AdminPanel() {
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
-        <div className="admin-brand">
-          <span className="brand-symbol"><Zap size={15} fill="currentColor" /></span>
-          <span className="text-sm font-black">Admin</span>
+        <div className="admin-brand flex items-center gap-2">
+          {siteConfig?.icon_url ? (
+            <img src={siteConfig.icon_url} alt="Logo" className="h-6 w-6 rounded object-contain" />
+          ) : (
+            <span className="brand-symbol"><Zap size={15} fill="currentColor" /></span>
+          )}
+          <span className="text-sm font-black truncate">{siteConfig?.site_name || "Admin"}</span>
         </div>
         <nav className="admin-nav">
           {navItems.map((item) => (
@@ -325,6 +347,7 @@ function AdminPanel() {
           {section === "wallet" && <WalletSection setSaving={setSaving} onSaved={markSaved} />}
           {section === "orders" && <OrdersSection />}
           {section === "alerts" && <AlertsSection setSaving={setSaving} onSaved={markSaved} />}
+          {section === "testimonials" && <TestimonialsSection setSaving={setSaving} onSaved={markSaved} />}
         </div>
       </main>
     </div>
@@ -1244,6 +1267,149 @@ function AlertsSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void
             No claim notifications configured. Add one or click Reset Defaults.
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Testimonials Section ──────────────────────────────────────
+function TestimonialsSection({ setSaving, onSaved }: { setSaving: (v: boolean) => void; onSaved: () => void }) {
+  const [testimonials, setTestimonials] = useState<DbTestimonial[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [name, setName] = useState("");
+  const [location, setLocation] = useState("");
+  const [vehicleModel, setVehicleModel] = useState("");
+  const [quote, setQuote] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [rating, setRating] = useState(5);
+  const [adding, setAdding] = useState(false);
+
+  const load = useCallback(() => {
+    fetchTestimonials()
+      .then(setTestimonials)
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !quote.trim()) return;
+    setSaving(true);
+    try {
+      await createTestimonial({
+        name: name.trim(),
+        location: location.trim() || "Verified Recipient",
+        vehicle_model: vehicleModel.trim() || "Tesla Cybertruck",
+        quote: quote.trim(),
+        image_url: imageUrl.trim() || undefined,
+        rating: Number(rating) || 5,
+      });
+      setName("");
+      setLocation("");
+      setVehicleModel("");
+      setQuote("");
+      setImageUrl("");
+      setAdding(false);
+      await load();
+      onSaved();
+    } catch (err: any) {
+      alert("Note: Please make sure the 'testimonials' table exists in Supabase. Check the SQL query provided in the instructions.\nError: " + (err?.message || err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Delete this testimonial?")) return;
+    setSaving(true);
+    try {
+      await deleteTestimonial(id);
+      await load();
+      onSaved();
+    } catch (err: any) {
+      alert("Delete note: " + (err?.message || err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-primary" /></div>;
+
+  return (
+    <div className="admin-section-grid space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-bold text-foreground">Verified Customer Testimonials</h2>
+          <p className="text-xs text-muted-foreground">Manage proof and delivery reviews displayed below checkout allocations.</p>
+        </div>
+        <Button className="rounded-full font-bold" size="sm" onClick={() => setAdding((v) => !v)}>
+          <Plus size={14} className="mr-1" /> {adding ? "Cancel" : "Add Testimonial"}
+        </Button>
+      </div>
+
+      {adding && (
+        <form onSubmit={handleAdd} className="admin-form space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h3 className="text-sm font-bold">New Customer Testimonial</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="admin-field">
+              <label className="admin-label">Recipient Name *</label>
+              <Input required placeholder="e.g. Jordan Miller" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="admin-field">
+              <label className="admin-label">Location (City, Country)</label>
+              <Input placeholder="e.g. Dallas, TX" value={location} onChange={(e) => setLocation(e.target.value)} />
+            </div>
+            <div className="admin-field">
+              <label className="admin-label">Vehicle Model Delivered</label>
+              <Input placeholder="e.g. Tesla Cybertruck (Cyberbeast)" value={vehicleModel} onChange={(e) => setVehicleModel(e.target.value)} />
+            </div>
+            <div className="admin-field">
+              <label className="admin-label">Photo / Avatar URL (optional)</label>
+              <Input placeholder="https://..." value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} />
+            </div>
+          </div>
+          <div className="admin-field">
+            <label className="admin-label">Review / Quote *</label>
+            <Textarea required rows={3} placeholder="Customer delivery experience..." value={quote} onChange={(e) => setQuote(e.target.value)} />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" className="rounded-full" onClick={() => setAdding(false)}>Cancel</Button>
+            <Button type="submit" className="rounded-full font-bold px-6">Save to Database</Button>
+          </div>
+        </form>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {testimonials.map((t) => (
+          <div key={t.id} className="rounded-xl border border-border bg-card p-4 shadow-2xs space-y-3 flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  {t.image_url ? (
+                    <img src={t.image_url} alt={t.name} className="h-9 w-9 rounded-full object-cover border" />
+                  ) : (
+                    <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center font-bold text-xs">{t.name.charAt(0)}</div>
+                  )}
+                  <div>
+                    <p className="text-xs font-bold text-foreground">{t.name}</p>
+                    <p className="text-[10px] text-muted-foreground">{t.location}</p>
+                  </div>
+                </div>
+                <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => handleDelete(t.id)}>
+                  <Trash2 size={13} />
+                </Button>
+              </div>
+              <p className="text-xs italic text-foreground/85">"{t.quote}"</p>
+            </div>
+            <div className="flex items-center justify-between text-[11px] border-t border-border/50 pt-2 text-muted-foreground">
+              <span className="font-semibold text-foreground">{t.vehicle_model}</span>
+              <span className="text-[10px] bg-muted px-2 py-0.5 rounded">Verified</span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
